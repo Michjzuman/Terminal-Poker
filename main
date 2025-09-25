@@ -9,7 +9,7 @@ import getpass
 import asyncio
 
 import tools
-import draw_cards
+import cards
 import find_hands
 import intro
 

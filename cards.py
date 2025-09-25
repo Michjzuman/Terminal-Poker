@@ -2,7 +2,7 @@ import math
 
 import tools
 
-def draw_cards(c):
+def draw(c):
     w = math.floor(tools.terminal_width() / 12)
     for cards in [c[:w], c[w:2*w], c[2*w:3*w]]:
         res = []
@@ -96,4 +96,4 @@ def draw_cards(c):
         print("\n".join(r) + "\n")
 
 if __name__ == "__main__":
-    draw_cards(["H3", "D5", "S9", "C1", "H7", "D8", "S2"])
+    draw(["H3", "DQ", "S9", "CK", "H7", "DJ", "S2"])
