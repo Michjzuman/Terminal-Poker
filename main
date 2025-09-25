@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-# © Michjzuman
+# Michjzuman's Terminal Poker
 
 from datetime import datetime, timedelta
 
@@ -9,6 +9,9 @@ import getpass
 import asyncio
 
 import tools
+import draw_cards
+import find_hands
+import intro
 
 user = {}
 
