@@ -1,8 +1,3 @@
-import os
-import platform
-import shutil
-import json
-
 import tools
 
 def find_hands(cards):

@@ -3,13 +3,15 @@ import platform
 import shutil
 import json
 
-RED = "\033[31m"
-BLUE = "\033[34m"
-PURPLE = "\033[35m"
-YELLOW = "\033[38;5;214m"
-GRAY = "\033[90m"
-GREEN = "\033[32m"
-RESET = "\033[0m"
+COLORS = {
+    "red": "\033[31m",
+    "blue": "\033[34m",
+    "purple": "\033[35m",
+    "yellow": "\033[38;5;214m",
+    "gray": "\033[90m",
+    "green": "\033[32m",
+    "reset": "\033[0m"
+}
 
 ALL_KINDS = "CHSD"
 ALL_NUMS = "234567891JQKA"
