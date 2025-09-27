@@ -25,9 +25,3 @@
 ## Run this to start the game:
 
     ./main
-
-<style>
-    body {
-        background-color: black;
-    }
-</style>

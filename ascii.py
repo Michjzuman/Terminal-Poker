@@ -4,7 +4,6 @@ import re
 import tools
 import animations
 
-
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 def cards(c):
@@ -240,13 +239,41 @@ def window(inner, keys=False):
 
         # Assemble the keys line inside the same frame width
         keys_line = "|" + (" " * left_pad) + content_str + (" " * left_pad) + "|"
+        
+        tools.listen_keys = keys
+        
         return f"{END}\n{result}\n{END}\n{keys_line}\n{END}"
     else:
         return f"{END}\n{result}\n{END}"
 
+def menu(content):
+    tools.listen_keys = content['options']
+    return window(
+        f"""{content['title']}
+{' '.join([f'''
+
+{tools.COLORS[item['color']]}[{item['key'].upper()}]{tools.COLORS["reset"]} - {item['action']}''' for item in content['options']])}""")
+
 if __name__ == "__main__":
     animations.intro()
     tools.clear()
+    print(menu(
+        {
+            "title": "Welcome to Michjzuman's Terminal Poker",
+            "options": [
+                {
+                    "key": "l",
+                    "action": "Login",
+                    "color": "blue"
+                },
+                {
+                    "key": "r",
+                    "action": "Register",
+                    "color": "purple"
+                }
+            ]
+        }
+    ))
     print(window(
         f"""Public Cards:\n{cards(["H3", "DQ", "S9", "CK", "H7"])}\n\nYour Cards:\n{cards(["CK", "H7"])}""",
         [
