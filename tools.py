@@ -28,19 +28,6 @@ def clear():
     else:
         os.system("clear")
 
-def read_file(f):
-    if os.stat(f).st_size == 0:
-        return {}
-    with open(f, "r") as file:
-        try:
-            return json.load(file)
-        except json.JSONDecodeError:
-            return {}
-
-def write_file(f, con):
-    with open(f, "w") as file:
-        file.write(json.dumps(con, indent=4))
-
 def terminal_width():
     return shutil.get_terminal_size(fallback=(80, 24)).columns
 
@@ -57,3 +44,4 @@ def colored(text):
         res += letter
         res += COLORS["reset"]
     return res
+
