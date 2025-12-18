@@ -1,4 +1,4 @@
-import tools
+import old.tools as tools
 
 def find_hands(cards):
     def royal_flush():

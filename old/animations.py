@@ -1,7 +1,7 @@
 import random
 import time
 
-import tools
+import old.tools as tools
 
 def intro():
     pos = [tools.COLORS["red"], tools.COLORS["blue"], tools.COLORS["purple"], tools.COLORS["yellow"]]
