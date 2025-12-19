@@ -23,8 +23,10 @@ def main():
             return False
         
         cards = [
-            Card("K", "H")
+            Card("6", "H")
         ]
+        
+        draw_back(canvas, 15, 20)
         
         for card in cards:
             card.draw(canvas)

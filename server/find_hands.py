@@ -1,11 +1,11 @@
-import old.tools as tools
+import rules
 
 def find_hands(cards):
     def royal_flush():
         res = []
-        for kind in tools.ALL_KINDS:
+        for kind in rules.ALL_SUITS:
             flush_cards = [card for card in cards if card[0] == kind]
-            flush_values = sorted([tools.ALL_NUMS.index(card[1]) for card in flush_cards], reverse=True)
+            flush_values = sorted([rules.ALL_RANKS.index(card[1]) for card in flush_cards], reverse=True)
 
             if set(flush_values) >= {8, 9, 10, 11, 12}:
                 res.append({"have": True, "points": sum(flush_values)})
@@ -13,7 +13,7 @@ def find_hands(cards):
     def flush():
         res = []
         checked_kinds = set()
-        for kind in tools.ALL_KINDS:
+        for kind in rules.ALL_SUITS:
             if kind in checked_kinds:
                 continue
             checked_kinds.add(kind)
@@ -23,7 +23,7 @@ def find_hands(cards):
             for card in cards:
                 if card[0] == kind:
                     count += 1
-                    points.append(tools.ALL_NUMS.index(card[1]) + 2)
+                    points.append(rules.ALL_RANKS.index(card[1]) + 2)
             if count >= 5:
                 hand["have"] = True
                 for i in range(count - 4):
@@ -43,7 +43,7 @@ def find_hands(cards):
             for checkCard in cards:
                 if checkCard[1] == card[1]:
                     count += 1
-                    points.append(tools.ALL_NUMS.index(card[1]) + 2)
+                    points.append(rules.ALL_RANKS.index(card[1]) + 2)
                     if count >= n:
                         hand["have"] = True
             if hand["have"]:
@@ -53,11 +53,11 @@ def find_hands(cards):
     def straight():
         res = []
         points = []
-        sorted_cards = sorted(cards, key=lambda card: tools.ALL_NUMS.index(card[1]))
+        sorted_cards = sorted(cards, key=lambda card: rules.ALL_RANKS.index(card[1]))
         for i in range(len(sorted_cards) - 4):
             hand = {"have": False}
             for j in range(i, i + 5):
-                points.append(tools.ALL_NUMS.index(sorted_cards[j][1]) + 2)
+                points.append(rules.ALL_RANKS.index(sorted_cards[j][1]) + 2)
 
             if sorted(points) == list(range(min(points), max(points) + 1)):
                 hand["have"] = True
@@ -66,9 +66,9 @@ def find_hands(cards):
         return res
     def straight_flush():
         res = []
-        for kind in tools.ALL_KINDS:
+        for kind in rules.ALL_SUITS:
             flush_cards = [card for card in cards if card[0] == kind]
-            flush_values = sorted([tools.ALL_NUMS.index(card[1]) for card in flush_cards], reverse=True)
+            flush_values = sorted([rules.ALL_RANKS.index(card[1]) for card in flush_cards], reverse=True)
 
             for i in range(len(flush_values) - 4):
                 hand = {"have": False}
@@ -109,7 +109,7 @@ def find_hands(cards):
         for card in cards:
             res.append({
                 "have": True,
-                "points": tools.ALL_NUMS.index(card[1]) + 2
+                "points": rules.ALL_RANKS.index(card[1]) + 2
             })
         return res
     
@@ -143,4 +143,4 @@ def find_hands(cards):
     return sort_hands(res)
 
 if __name__ == "__main__":
-    print(find_hands(["C2", "C3", "C4", "C5", "C6", "D6", "H6"]))
+    print(find_hands([("2", "C"), ("3", "C"), ("4", "C"), ("5", "C"), ("6", "C"), ("6", "D"), ("6", "H")]))
