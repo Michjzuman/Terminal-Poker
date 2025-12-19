@@ -1,4 +1,4 @@
-COLORS = {
+COLOR_CODES = {
     "red": "⫷",
     "blue": "⫸",
     "purple": "⟐",
@@ -8,9 +8,9 @@ COLORS = {
     "white": "␛" 
 }
 
-COLOR_CODES = {
+COLORS = {
     code: name
-    for name, code in COLORS.items()
+    for name, code in COLOR_CODES.items()
 }
 
 EXACT_COLORS = {

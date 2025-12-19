@@ -44,4 +44,3 @@ def colored(text):
         res += letter
         res += COLORS["reset"]
     return res
-

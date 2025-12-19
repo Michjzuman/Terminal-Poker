@@ -53,7 +53,7 @@ class Canvas:
         if attr:
             self._stdscr.attroff(attr)
         
-    def draw(self, x: int, y: int, chars: list) -> None:
+    def draw(self, chars: list, x: int, y: int) -> None:
         x = max(0, min(self.width - 1, x))
         y = max(1, min(self.height - 1, y))
 
@@ -61,8 +61,8 @@ class Canvas:
         for yi, line in enumerate(chars):
             xi = 0
             for char in line:
-                if char in utils.COLOR_CODES:
-                    color = utils.COLOR_CODES[char]
+                if char in utils.COLORS:
+                    color = utils.COLORS[char]
                 else:
                     self.draw_pixel(x + xi, y + yi, char, color)
                     xi += 1
@@ -337,3 +337,15 @@ class Canvas:
             if k == "right":
                 return curses.KEY_RIGHT
         raise TypeError("key muss int, 1-char str oder Alias wie 'up' sein")
+
+    def border(self, color = "gray"):
+        for x in range(round(self.width)):
+            self.draw_pixel(x, 0, "═", color)
+            self.draw_pixel(x, self.height - 1, "═", color)
+        for y in range(round(self.height)):
+            self.draw_pixel(0, y, "║", color)
+            self.draw_pixel(self.width - 1, y, "║", color)
+        self.draw_pixel(0, 0, "╔", color)
+        self.draw_pixel(self.width, 0, "╗", color)
+        self.draw_pixel(0, self.height, "╚", color)
+        self.draw_pixel(self.width, self.height, "╝", color)

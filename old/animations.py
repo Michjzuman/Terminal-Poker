@@ -6,7 +6,7 @@ import old.tools as tools
 def intro():
     pos = [tools.COLORS["red"], tools.COLORS["blue"], tools.COLORS["purple"], tools.COLORS["yellow"]]
 
-    def getText(prob, colors):
+    def getText(prob, COLORS):
         text = f"""+-------------------------------------------------------+
 |                                                       |
 |                                                       |
@@ -18,11 +18,11 @@ def intro():
 |                                                       |
 |                                                       |
 |                {tools.COLORS["gray"]}Michjzuman's Terminal-{tools.COLORS["reset"]}                 |
-| {colors[0]}      _____ {colors[1]}   ____   {colors[2]}  ___ ___ {colors[3]}   _______ {colors[4]} _____    {tools.COLORS["reset"]} |
-| {colors[0]}     /  _  |{colors[1]} /  __  \ {colors[2]} /  //  / {colors[3]}  /  ____/{colors[4]} /  _  |   {tools.COLORS["reset"]} |
-| {colors[0]}    /   __/ {colors[1]}/  / /  /{colors[2]} /     /  {colors[3]}  /  /__ {colors[4]}  /     /    {tools.COLORS["reset"]} |
-| {colors[0]}   /  /    {colors[1]}/  /_/  /{colors[2]} /  /\  \ {colors[3]}  /  /___ {colors[4]} /  /| |     {tools.COLORS["reset"]} |
-| {colors[0]}  /__/     {colors[1]}\______/{colors[2]} /__/  \__\{colors[3]} /______/ {colors[4]}/__/ |_|     {tools.COLORS["reset"]} |
+| {COLORS[0]}      _____ {COLORS[1]}   ____   {COLORS[2]}  ___ ___ {COLORS[3]}   _______ {COLORS[4]} _____    {tools.COLORS["reset"]} |
+| {COLORS[0]}     /  _  |{COLORS[1]} /  __  \ {COLORS[2]} /  //  / {COLORS[3]}  /  ____/{COLORS[4]} /  _  |   {tools.COLORS["reset"]} |
+| {COLORS[0]}    /   __/ {COLORS[1]}/  / /  /{COLORS[2]} /     /  {COLORS[3]}  /  /__ {COLORS[4]}  /     /    {tools.COLORS["reset"]} |
+| {COLORS[0]}   /  /    {COLORS[1]}/  /_/  /{COLORS[2]} /  /\  \ {COLORS[3]}  /  /___ {COLORS[4]} /  /| |     {tools.COLORS["reset"]} |
+| {COLORS[0]}  /__/     {COLORS[1]}\______/{COLORS[2]} /__/  \__\{COLORS[3]} /______/ {COLORS[4]}/__/ |_|     {tools.COLORS["reset"]} |
 |                                                       |
 |                                                       |
 +-------------------------------------------------------+"""
@@ -34,7 +34,7 @@ def intro():
         
         return ''.join(text)
 
-    colors = [
+    COLORS = [
         random.choice(pos),
         random.choice(pos),
         random.choice(pos),
@@ -44,14 +44,14 @@ def intro():
 
     for i in range(25):
         if i % 5 == 0:
-            colors = [
+            COLORS = [
                 random.choice(pos),
                 random.choice(pos),
                 random.choice(pos),
                 random.choice(pos),
                 random.choice(pos)
             ]
-        text = getText(round(i**3), colors)
+        text = getText(round(i**3), COLORS)
         tools.clear()
         print(text)
         time.sleep(0.1)
