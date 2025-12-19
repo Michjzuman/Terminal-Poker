@@ -1,22 +1,14 @@
 import math
 
-COLORS = {
-    "red": "",
-    "blue": "",
-    "purple": "",
-    "yellow": "",
-    "gray": "",
-    "green": "",
-    "reset": ""
-}
+import utils
    
-def card(rank: str = "7", suit: str = "H", selection: bool = False):
+def card(rank: str = "7", suit: str = "", selection: bool = False):
     color = {
-        "H": COLORS["red"],
-        "C": COLORS["purple"],
-        "D": COLORS["yellow"],
-        "S": COLORS["blue"],
-        "B": COLORS["gray"]
+        "H": utils.COLORS["red"],
+        "C": utils.COLORS["purple"],
+        "D": utils.COLORS["yellow"],
+        "S": utils.COLORS["blue"],
+        "B": utils.COLORS["gray"]
     }[suit]
     s = {
         "H": "♥",
@@ -26,7 +18,21 @@ def card(rank: str = "7", suit: str = "H", selection: bool = False):
         "B": ""
     }[suit]
     
-    if rank == "K":
+    if rank == "B":
+        design = [
+            f"┌───────┐",
+            f"│ <><>< │",
+            f"│ ><><> │",
+            f"│ <><>< │",
+            f"│ ><><> │",
+            f"│ <><>< │",
+            f"└───────┘",
+            f"         "
+        ]
+        for line in design:
+            line = f"{utils.COLORS['green']}{design}{utils.COLORS['white']}"
+        return design
+    elif rank == "K":
         design = [
             f"┌───────┐",
             f"│  www  │",
@@ -74,20 +80,23 @@ def card(rank: str = "7", suit: str = "H", selection: bool = False):
     result = design[:1]
     
     for line in design[1:-2]:
-        result.append(f"{line[0]}{line[1:-1]}{line[-1]}")
+        result.append(f"{line[0]}{color}{line[1:-1]}{utils.COLORS['white']}{line[-1]}")
         
-    result += design[-2:]
+    result += design[-2:-1]
+    result.append(f"{color}{design[-1]}{utils.COLORS['white']}")
     
     return result
 
 def border(canvas):
+    color = "gray"
     for x in range(round(canvas.width)):
-        canvas.draw_pixel(x, 0, "═")
-        canvas.draw_pixel(x, canvas.height - 1, "═")
+        canvas.draw_pixel(x, 0, "═", color)
+        canvas.draw_pixel(x, canvas.height - 1, "═", color)
     for y in range(round(canvas.height)):
-        canvas.draw_pixel(0, y, "║")
-        canvas.draw_pixel(canvas.width - 1, y, "║")
-    canvas.draw_pixel(0, 0, "╔")
-    canvas.draw_pixel(canvas.width, 0, "╗")
-    canvas.draw_pixel(0, canvas.height, "╚")
-    canvas.draw_pixel(canvas.width, canvas.height, "╝")
+        canvas.draw_pixel(0, y, "║", color)
+        canvas.draw_pixel(canvas.width - 1, y, "║", color)
+    canvas.draw_pixel(0, 0, "╔", color)
+    canvas.draw_pixel(canvas.width, 0, "╗", color)
+    canvas.draw_pixel(0, canvas.height, "╚", color)
+    canvas.draw_pixel(canvas.width, canvas.height, "╝", color)
+

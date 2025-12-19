@@ -23,9 +23,9 @@ def main():
             return False
         
         canvas.draw(10, 5, ascii.card("K", "H", True))
-        canvas.draw(10, 30, ascii.card("Q", "H"))
-        canvas.draw(70, 30, ascii.card("J", "H"))
-        canvas.draw(50, 10, ascii.card("10", "H", True))
+        canvas.draw(10, 30, ascii.card("Q", "D"))
+        canvas.draw(70, 30, ascii.card("J", "S"))
+        canvas.draw(50, 10, ascii.card("10", "C", True))
         
         ascii.border(canvas)
 
