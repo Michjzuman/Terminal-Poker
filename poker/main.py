@@ -7,14 +7,14 @@ import random
 import json
 import math
 
-from card import Card
+from card import Card, draw_back
 from canvas import Canvas
 
 def main():
     canvas = Canvas(
-        fps=60,
+        fps=10,
         hold_window=0.12,
-        auto_clear=False
+        auto_clear=True
     )
 
     def update(canvas):

@@ -1,7 +1,6 @@
-import random
-import time
+# under construction
 
-import old.tools as tools
+import random
 
 def intro():
     pos = [tools.COLORS["red"], tools.COLORS["blue"], tools.COLORS["purple"], tools.COLORS["yellow"]]
@@ -55,6 +54,3 @@ def intro():
         tools.clear()
         print(text)
         time.sleep(0.1)
-
-if __name__ == "__main__":
-    intro()

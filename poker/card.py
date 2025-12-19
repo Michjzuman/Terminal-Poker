@@ -3,28 +3,15 @@ import math
 import utils
 
 class Card:
-    def __init__(self, rank, suit, shown = False, opened = True):
+    def __init__(self, rank, suit, shown = False):
         self.rank = rank
         self.suit = suit
         self.shown = shown
-        self.opened = opened
         
         self.x = 6
         self.y = 7
    
     def draw(self, canvas):
-        if not self.opened:
-            return [
-                f"{utils.COLOR_CODES['gray']}┌───────┐",
-                f"│ <><>< │",
-                f"│ ><><> │",
-                f"│ <><>< │",
-                f"│ ><><> │",
-                f"│ <><>< │",
-                f"└───────┘",
-                f"         "
-            ]
-            
         color = {
             "H": utils.COLOR_CODES["red"],
             "C": utils.COLOR_CODES["purple"],
@@ -94,3 +81,15 @@ class Card:
         result.append(f"{color}{design[-1]}{utils.COLOR_CODES['white']}")
         # 67
         canvas.draw(result, self.x, self.y)
+
+def draw_back(canvas, x, y):
+    canvas.draw([
+        f"{utils.COLOR_CODES['gray']}┌───────┐",
+        f"│ <><>< │",
+        f"│ ><><> │",
+        f"│ <><>< │",
+        f"│ ><><> │",
+        f"│ <><>< │",
+        f"└───────┘",
+        f"         "
+    ], x, y)
