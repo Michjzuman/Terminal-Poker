@@ -1,3 +1,5 @@
+import random
+
 ALL_RANKS = [
     "2", "3", "4",
     "5", "6", "7",
@@ -162,6 +164,19 @@ def find_hands(cards):
                 res.append({"hand": names[i], "points": h["points"]})
 
     return sort_hands(res)
+
+class Game:
+    def __init__(self):
+        self.stack = [
+            (rank, suit)
+            for rank in ALL_RANKS
+            for suit in ALL_SUITS
+        ]
+        self.state = 0
+        self.players = 2
+    
+    def shuffle(self):
+        random.shuffle(self.stack)
 
 if __name__ == "__main__":
     print(find_hands([
