@@ -9,15 +9,18 @@ import rules
 class Game:
     def __init__(self):
         self.stack = [
-            [
-                (rank, suit)
-                for rank in rules.ALL_RANKS
-            ]
+            (rank, suit)
+            for rank in rules.ALL_RANKS
             for suit in rules.ALL_SUITS
         ]
+        self.state = 0
+    
+    def shuffle(self):
+        random.shuffle(self.stack)
         
 def main():
     game = Game()
+    game.shuffle()
     print(game.stack)
 
 if __name__ == "__main__":

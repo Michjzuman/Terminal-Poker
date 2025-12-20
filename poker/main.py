@@ -7,7 +7,7 @@ import random
 import json
 import math
 
-from card import Card, draw_back
+import ascii
 from canvas import Canvas
 
 def main():
@@ -23,15 +23,15 @@ def main():
             return False
         
         cards = [
-            Card("6", "H")
+            ascii.Card("6", "H")
         ]
         
-        draw_back(canvas, 15, 20)
+        ascii.draw_card_back(canvas, 15, 20)
         
         for card in cards:
             card.draw(canvas)
         
-        canvas.border()
+        ascii.border(canvas)
 
         if canvas.just_pressed(" "):
             canvas.clear()

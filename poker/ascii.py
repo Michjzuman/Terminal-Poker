@@ -82,7 +82,7 @@ class Card:
         # 67
         canvas.draw(result, self.x, self.y)
 
-def draw_back(canvas, x, y):
+def draw_card_back(canvas, x, y):
     canvas.draw([
         f"{utils.COLOR_CODES['gray']}┌───────┐",
         f"│ <><>< │",
@@ -93,3 +93,15 @@ def draw_back(canvas, x, y):
         f"└───────┘",
         f"         "
     ], x, y)
+
+def border(canvas, color = "gray"):
+    for x in range(round(canvas.width)):
+        canvas.draw_pixel(x, 0, "═", color)
+        canvas.draw_pixel(x, canvas.height - 1, "═", color)
+    for y in range(round(canvas.height)):
+        canvas.draw_pixel(0, y, "║", color)
+        canvas.draw_pixel(canvas.width - 1, y, "║", color)
+    canvas.draw_pixel(0, 0, "╔", color)
+    canvas.draw_pixel(canvas.width, 0, "╗", color)
+    canvas.draw_pixel(0, canvas.height, "╚", color)
+    canvas.draw_pixel(canvas.width, canvas.height, "╝", color)

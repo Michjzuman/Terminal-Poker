@@ -337,15 +337,3 @@ class Canvas:
             if k == "right":
                 return curses.KEY_RIGHT
         raise TypeError("key muss int, 1-char str oder Alias wie 'up' sein")
-
-    def border(self, color = "gray"):
-        for x in range(round(self.width)):
-            self.draw_pixel(x, 0, "═", color)
-            self.draw_pixel(x, self.height - 1, "═", color)
-        for y in range(round(self.height)):
-            self.draw_pixel(0, y, "║", color)
-            self.draw_pixel(self.width - 1, y, "║", color)
-        self.draw_pixel(0, 0, "╔", color)
-        self.draw_pixel(self.width, 0, "╗", color)
-        self.draw_pixel(0, self.height, "╚", color)
-        self.draw_pixel(self.width, self.height, "╝", color)
