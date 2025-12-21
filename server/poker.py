@@ -11,17 +11,20 @@ ALL_SUITS = [
     "H", "S", "D", "C"
 ]
 
-GAME_STATES = {
-    "Flop": {
+GAME_STATES = [
+    {
+        "name": "Flop",
         "cards_revealed": 3
     },
-    "River": {
+    {
+        "name": "River",
         "cards_revealed": 1
     },
-    "Turn": {
+    {
+        "name": "Turn",
         "cards_revealed": 1
     }
-}
+]
 
 def find_hands(cards):
     def royal_flush():
@@ -165,15 +168,26 @@ def find_hands(cards):
 
     return sort_hands(res)
 
+class Player:
+    def __init__(self.):
+
 class Game:
     def __init__(self):
+        self.state = 0
+        self.players = 2
+        
         self.stack = [
             (rank, suit)
             for rank in ALL_RANKS
             for suit in ALL_SUITS
         ]
-        self.state = 0
-        self.players = 2
+        random.shuffle(self.stack)
+        
+        self.community_cards = self.stack[:sum([
+            state["cards_revealed"]
+            for state in GAME_STATES
+        ][:self.state + 1])]
+        self.state_name = GAME_STATES[self.state]["name"]
     
     def shuffle(self):
         random.shuffle(self.stack)

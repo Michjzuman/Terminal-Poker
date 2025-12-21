@@ -46,3 +46,7 @@ ruff_cache/
 
 # --- Testing ---
 run.py
+
+# --- Storage ---
+.users.json
+.table.json

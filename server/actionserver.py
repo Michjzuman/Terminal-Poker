@@ -12,9 +12,28 @@ class ActionHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == "/ping":
-            self._send_json(200, {"ok": True, "msg": "pong"})
+            self._send_json(200, {
+                "ok": True,
+                "data": "pong"
+            })
+        elif self.path == "/players":
+            self._send_json(200, {
+                "ok": True,
+                "data": self.server.game.players
+            })
+        elif self.path == "/table":
+            self._send_json(200, {
+                "ok": True,
+                "data": {
+                    "state": self.server.game.state_name,
+                    "community_cards": self.server.game.community_cards
+                }
+            })
         else:
-            self._send_json(404, {"ok": False, "error": "Not found"})
+            self._send_json(404, {
+                "ok": False,
+                "error": "Not found"
+            })
 
     def do_POST(self):
         if self.path != "/action":
@@ -33,12 +52,16 @@ class ActionHandler(BaseHTTPRequestHandler):
         action_name = data.get("action")
         params = data.get("params", {})
 
+        # --- say_hello ---
+
         if action_name == "say_hello":
             name = params.get("name", "World")
             result = f"Hello {name}!"
             self._send_json(200, {"ok": True, "result": result})
             return
 
+        # --- add ---
+        
         if action_name == "add":
             try:
                 a = int(params.get("a", 0))
@@ -51,10 +74,13 @@ class ActionHandler(BaseHTTPRequestHandler):
             self._send_json(200, {"ok": True, "result": result})
             return
 
+        # --- --- ---
+
         self._send_json(400, {"ok": False, "error": f"Unbekannte Aktion: {action_name}"})
 
-def run():
+def run(game):
     server_address = ("127.0.0.1", 8000)
     httpd = HTTPServer(server_address, ActionHandler)
+    httpd.game = game
     print("Server laeuft auf http://127.0.0.1:8000 (CTRL+C zum Stoppen)")
     httpd.serve_forever()

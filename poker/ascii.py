@@ -3,13 +3,11 @@ import math
 import utils
 
 class Card:
-    def __init__(self, rank, suit, shown = False):
+    def __init__(self, rank, suit, x, y):
         self.rank = rank
         self.suit = suit
-        self.shown = shown
-        
-        self.x = 6
-        self.y = 7
+        self.x = x
+        self.y = y
    
     def draw(self, canvas):
         color = {
