@@ -25,6 +25,7 @@ class Canvas:
         self._palette: list[RGBColor] = []
         self._colors_enabled = False
         self._background_color = -1
+        self._size: tuple[int, int] | None = None
 
     @property
     def width(self) -> int:
@@ -85,10 +86,16 @@ class Canvas:
             if k == -1:
                 break
 
+            if k == curses.KEY_RESIZE:
+                self._handle_resize()
+                continue
+
             # In curses sind Spezialtasten ints (z.B. KEY_UP),
             # normale Buchstaben sind ord('a') etc.
             self._just_pressed.add(k)
             self._last_seen[k] = now
+
+        self._check_resize()
 
         # Alte Eintraege ausduennen (optional)
         cutoff = now - max(self.hold_window * 4.0, 0.5)
@@ -175,6 +182,7 @@ class Canvas:
         self._last_seen.clear()
         self._just_pressed.clear()
         self._init_colors()
+        self._size = self._stdscr.getmaxyx()
 
     def _init_colors(self) -> None:
         self._color_pairs.clear()
@@ -215,6 +223,40 @@ class Canvas:
         if not palette:
             palette = [utils.EXACT_COLORS.get("white", (255, 255, 255))]
         return palette
+
+    def _check_resize(self) -> None:
+        if self._stdscr is None:
+            return
+
+        actual = self._stdscr.getmaxyx()
+        if self._size != actual:
+            self._handle_resize(actual)
+
+    def _handle_resize(self, new_size: tuple[int, int] | None = None) -> None:
+        if self._stdscr is None:
+            return
+
+        target_size = new_size or self._stdscr.getmaxyx()
+        if self._size == target_size:
+            return
+
+        try:
+            curses.update_lines_cols()
+        except curses.error:
+            pass
+
+        try:
+            curses.resize_term(*target_size)
+        except curses.error:
+            pass
+
+        try:
+            self._stdscr.resize(*target_size)
+        except curses.error:
+            pass
+
+        self._stdscr.clear()
+        self._size = target_size
 
     def _scale_to_255(self, r: int, g: int, b: int) -> RGBColor:
         return (

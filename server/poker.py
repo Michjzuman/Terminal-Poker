@@ -1,4 +1,5 @@
 import random
+from datetime import datetime
 
 ALL_RANKS = [
     "2", "3", "4",
@@ -169,12 +170,16 @@ def find_hands(cards):
     return sort_hands(res)
 
 class Player:
-    def __init__(self.):
+    def __init__(self, game):
+        self.table_id = game.next_table_id
+        self.name : str
+        self.coins : int
+        self.last_handshake : str
 
 class Game:
     def __init__(self):
         self.state = 0
-        self.players = 2
+        self.next_table_id = 0
         
         self.stack = [
             (rank, suit)
@@ -188,9 +193,20 @@ class Game:
             for state in GAME_STATES
         ][:self.state + 1])]
         self.state_name = GAME_STATES[self.state]["name"]
+        
+        self.players = [
+            Player(self)
+        ]
+        
+        self.chat = []
     
-    def shuffle(self):
-        random.shuffle(self.stack)
+    def chat_message(self, message):
+        self.chat.append(message)
+    
+    def handshake(self, table_id):
+        for player in self.players:
+            if player.table_id == table_id:
+                player.last_handshake = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 if __name__ == "__main__":
     print(find_hands([

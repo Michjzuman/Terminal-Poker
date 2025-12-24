@@ -18,6 +18,12 @@ def main():
         auto_clear=True
     )
     
+    login = {
+        "name": "Michjzuman",
+        "password": "abc",
+        "table_id": 0
+    }
+    
     table = client.get("table")["data"]
     community_cards = []
     for i, card in enumerate(table["community_cards"]):
@@ -25,10 +31,17 @@ def main():
         community_cards.append(ascii.Card(rank, suit, 10 + i * 20, 10))
 
     def update():
-        table = client.get("table")["data"]
-        for i, card in enumerate(community_cards):
-            card.rank = table["community_cards"][i][0]
-            card.suit = table["community_cards"][i][1]
+        table = client.get("table")
+        if table["ok"]:
+            for i, card in enumerate(community_cards):
+                card.rank = table["data"]["community_cards"][i][0]
+                card.suit = table["data"]["community_cards"][i][1]
+        
+        client.post("handshake", {
+            "name": login["name"],
+            "password": login["password"],
+            "table_id": login["table_id"]
+        })
 
     update_interval = 0.5
     last_update = 0.0
