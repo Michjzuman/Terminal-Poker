@@ -58,7 +58,7 @@ class Rank(IntEnum):
             Rank.SEVEN: "7",
             Rank.EIGHT: "8",
             Rank.NINE: "9",
-            Rank.TEN: "T",
+            Rank.TEN: "10",
             Rank.JACK: "J",
             Rank.QUEEN: "Q",
             Rank.KING: "K",
@@ -73,56 +73,65 @@ class Card:
         self.rank = rank
         self.suit = suit
     
-    @property
-    def ascii(self):
-        s = self.suit.symbol
-        
+    def ascii(self, old_design = True):
         if self.rank == Rank.KING:
             design = [
                 f"┌───────┐",
                 f"│  www  │",
-                f"│  [{s}]  │",
+                f"│  [{self.suit.symbol}]  │",
                 f"│ _/_\\_ │",
                 f"││+ † +││",
                 f"│ - - - │",
                 f"└───────┘",
-                f"   K {s}   "
+                f"   K {self.suit.symbol}   "
             ]
         elif self.rank == Rank.QUEEN:
             design = [
                 f"┌───────┐",
                 f"│  www  │",
-                f"│  ({s})  │",
+                f"│  ({self.suit.symbol})  │",
                 f"│ _)*(_ │",
                 f"│(~~V~~)│",
                 f"│ - - - │",
                 f"└───────┘",
-                f"   Q {s}   "
+                f"   Q {self.suit.symbol}   "
             ]
         elif self.rank == Rank.JACK:
             design = [
                 f"┌───────┐",
                 f"│  ,=~  │",
-                f"│  [{s}{'}'}  │",
+                f"│  [{self.suit.symbol}{'}'}  │",
                 f"│ _/_\\_ │",
                 f"│|\\ |:/|│",
                 f"│ - - - │",
                 f"└───────┘",
-                f"   J {s}   "
+                f"   J {self.suit.symbol}   "
             ]
         else:
-            def f(l: list[str]):
-                return s if not self.rank.letter in l else ' '
+            def a(l: list[str]):
+                return self.suit.symbol if not self.rank.letter in l else ' '
+            def b(l: list[str]):
+                return self.suit.symbol if self.rank.letter in l else ' '
             design = [
                 f"┌───────┐",
-                f"│ {f(['A', '2', '3'])} {f(['2', '3'])} {f(['A', '2', '3'])} │",
-                f"│   {f(['7', '8', '9', '10'])}   │",
-                f"│ {f(['6', '7', '8', '9', '10'])} {f(['A', '3', '5'])} {f(['6', '7', '8', '9', '10'])} │",
-                f"│ {f(['9', '10'])} {f(['8', '10'])} {f(['9', '10'])} │",
-                f"│ {f(['A', '2', '3'])} {f(['2', '3'])} {f(['A', '2', '3'])} │",
+                f"│ {a(['A', '2', '3'])} {b(['2', '3'])} {a(['A', '2', '3'])} │",
+                f"│   {b(['7', '8', '9', '10'])}   │",
+                f"│ {b(['6', '7', '8', '9', '10'])} {b(['A', '3', '5'])} {b(['6', '7', '8', '9', '10'])} │",
+                f"│ {b(['9', '10'])} {b(['8', '10'])} {b(['9', '10'])} │",
+                f"│ {a(['A', '2', '3'])} {b(['2', '3'])} {a(['A', '2', '3'])} │",
                 f"└───────┘",
-                f"  {self.rank} {s}   "
+                f" {' ' if len(self.rank.letter) == 1 else ''} {self.rank} {self.suit.symbol}   "
             ]
+        
+        if old_design:
+            updated_design = []
+            for line in design:
+                updated_design.append(line
+                    .replace("┌───────┐", "+-------+")
+                    .replace("│", "|")
+                    .replace("└───────┘", "+-------+")
+                )
+            design = updated_design
         
         result = design[:1]
         
@@ -134,9 +143,8 @@ class Card:
         
         return result
 
-
-
 if __name__ == "__main__":
     os.system("clear; clear")
-    card = Card(Rank.SEVEN, Suit.HEARTS)
-    print("\n".join(card.ascii))
+    for rank in list(Rank):
+        card = Card(rank, Suit.HEARTS)
+        print("\n".join(card.ascii()))

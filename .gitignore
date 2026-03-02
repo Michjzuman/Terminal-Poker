@@ -43,10 +43,3 @@ ruff_cache/
 .DS_Store
 .vscode/
 .idea/
-
-# --- Testing ---
-run.py
-
-# --- Storage ---
-.users.json
-.table.json
