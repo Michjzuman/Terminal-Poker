@@ -1,5 +1,10 @@
 from enum import IntEnum, Enum
-import os
+
+class Settings:
+    def __init__(self):
+        self.old_design = False
+
+settings = Settings()
 
 class Suit(Enum):
     CLUBS = "C"
@@ -73,7 +78,8 @@ class Card:
         self.rank = rank
         self.suit = suit
     
-    def ascii(self, old_design = True):
+    @property
+    def ascii(self):
         if self.rank == Rank.KING:
             design = [
                 f"┌───────┐",
@@ -123,7 +129,7 @@ class Card:
                 f" {' ' if len(self.rank.letter) == 1 else ''} {self.rank} {self.suit.symbol}   "
             ]
         
-        if old_design:
+        if settings.old_design:
             updated_design = []
             for line in design:
                 updated_design.append(line
@@ -136,15 +142,91 @@ class Card:
         result = design[:1]
         
         for line in design[1:-2]:
-            result.append(f"{line[0]}{self.suit.color}{line[1:-1]}{"\033[0m"}{line[-1]}")
+            result.append(f"{line[0]}{self.suit.color}{line[1:-1]}\033[0m{line[-1]}")
         
         result += design[-2:-1]
-        result.append(f"{self.suit.color}{design[-1]}{"\033[0m"}")
+        result.append(f"{self.suit.color}{design[-1]}\033[0m")
         
         return result
 
+class Hand_Rank(Enum):
+    ROYAL_FLUSH = 1
+    STRAIGHT_FLUSH = 2
+    FOUR_OF_A_KIND = 3
+    FULL_HOUSE = 4
+    FLUSH = 5
+    STRAIGHT = 6
+    THREE_OF_A_KIND = 7
+    TWO_PAIR = 8
+    PAIR = 9
+    HIGH_CARD = 10
+
+class Hand:
+    def __init__(self, rank: Hand_Rank, *cards: Card):
+        self.rank: Hand_Rank = rank
+        self.cards: list[Card] = cards
+
+def find_hands(*cards: Card) -> list[Hand]:
+    def high_card() -> list[Hand]:
+        return
+    return
+
+
+
+class Player:
+    def __init__(self, name: str, money: int):
+        self.name: str = name
+        self.money: int = money
+        self.cards: list[Card] = []
+
+class Phase(Enum):
+    PREFLOP = "Preflop"
+    FLOP = "Flop"
+    RIVER = "River"
+    TURN = "Turn"
+    
+    @property
+    def amount_of_cards(self):
+        return {
+            Phase.PREFLOP: 0,
+            Phase.FLOP: 3,
+            Phase.RIVER: 1,
+            Phase.TURN: 1,
+        }[self]
+    
+    @property
+    def next(self):
+        return {
+            Phase.PREFLOP: Phase.FLOP,
+            Phase.FLOP: Phase.RIVER,
+            Phase.RIVER: Phase.TURN,
+            Phase.TURN: None,
+        }[self]
+
+class Game:
+    def __init__(self, *players: Player, pool: int = 0):
+        self.phase: Phase = Phase.PREFLOP
+        self.pool: int = pool
+        self.players: list[Player] = list(players)
+        self.community_cards: list[Card] = []
+        self.stack: list[Card] = [
+            Card(rank, suit)
+            for rank in list(Rank)
+            for suit in list(Suit)
+        ]
+
+    def next_phase(self):
+        self.phase = self.phase.next
+
 if __name__ == "__main__":
+    import os
     os.system("clear; clear")
-    for rank in list(Rank):
-        card = Card(rank, Suit.HEARTS)
-        print("\n".join(card.ascii()))
+    
+    card = Card(Rank.SEVEN, Suit.HEARTS)
+    print("\n".join(card.ascii))
+    
+    game = Game(
+        Player("Hans", 67),
+        Player("Fritz", 41),
+        pool = 5
+    )
