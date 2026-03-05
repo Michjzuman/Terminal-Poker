@@ -1,13 +1,42 @@
 from fastapi import FastAPI, Query, HTTPException
-from fastapi.responses import JSONResponse
+from contextlib import asynccontextmanager, suppress
+from pydantic import BaseModel, Field
 import uvicorn
+import bcrypt
+import asyncio
 import os
 
 import poker
 
-app = FastAPI(title="Terminal Poker")
+WAIT_UNITL_ROUND_START = 20
 
 table_counter = 0
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    app.state.table_tasks = [
+        asyncio.create_task(table.run(), name=f"table-{table.id}")
+        for table in tables
+    ]
+    try:
+        yield
+    finally:
+        for t in app.state.table_tasks:
+            t.cancel()
+        for t in app.state.table_tasks:
+            with suppress(asyncio.CancelledError):
+                await t
+
+app = FastAPI(title="Terminal Poker", lifespan=lifespan)
+
+def hash_password(password: str) -> str:
+    pw_bytes = password.encode("utf-8")
+    salt = bcrypt.gensalt(rounds=12)
+    hashed = bcrypt.hashpw(pw_bytes, salt)
+    return hashed.decode("utf-8")
+
+def verify_password(password: str, hashed: str) -> bool:
+    return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
 
 class Table:
     def __init__(self):
@@ -16,14 +45,48 @@ class Table:
         self.id: int = table_counter
         table_counter += 1
         
-        self.game: poker.Game = ModuleNotFoundError
+        self.game: poker.Game = None
+        self.players: list[poker.Player] = []
+        
+        self.count_down = WAIT_UNITL_ROUND_START
+        
+        self.info = {}
+    
+    async def run(self):
+        while self.game is None:
+            if len(self.players) >= 2:
+                self.count_down -= 1
+                if self.count_down <= 0:
+                    self.game = poker.Game(*self.players)
+            await asyncio.sleep(1)
+        while not self.game.finished:
+            self.info = {
+                "turn": self.game.turn,
+                "small_blind": self.game.small_blind,
+                "big_blind": self.game.big_blind,
+                "phase": self.game.phase,
+                "community_cards": self.game.community_cards
+            }
+            
+            self.game.deal_cards()
+            self.game.next_phase()
+            
+            await asyncio.sleep(1)
 
-tables: list[Table] = [
-    Table(),
-    Table(),
-    Table(),
-    Table()
-]
+class User(poker.Player):
+    def __init__(self, name: str, password_hash: str):
+        super().__init__(name, 100)
+        self.password_hash: str = password_hash
+        self.active: str = password_hash
+
+tables: list[Table] = [Table(), Table()]
+
+users: list[User] = []
+
+
+# === === === === === === === ===
+# --- GET --- ---
+
 
 @app.get("/")
 def root():
@@ -40,12 +103,93 @@ def get_tables():
         "ok": True,
         "tables": [
             {
+                "id": table.id,
                 "active": table.game != None,
-                "id": table.id
+                "players": len(table.players),
+                "count_down": table.count_down,
+                "info": table.info
             }
             for table in tables
         ]
     }
+
+@app.get("/money")
+def get_tables():
+    return {
+        "ok": True,
+        "players": {
+            user.name: user.money
+            for user in users
+        }
+    }
+
+
+# === === === === === === === ===
+# --- POST -- ---
+
+
+class LoginBody(BaseModel):
+    username: str = Field(..., min_length=1, max_length=64)
+    password: str = Field(..., min_length=1, max_length=200)
+
+@app.post("/register")
+def register(body: LoginBody):
+    new_user = User(body.username, hash_password(body.password))
+    for user in users:
+        if user.name == new_user.name:
+            return {"ok": False}
+    users.append(new_user)
+    print(f"New User '{new_user.name}' Registered!")
+    return {"ok": True}
+
+@app.post("/login")
+def login(body: LoginBody):
+    for user in users:
+        if (
+            body.username == user.name and
+            verify_password(body.password, user.password_hash)
+        ):
+            return {"ok": True}
+    return {"ok": False}
+
+class JoinTableBody(LoginBody):
+    table_id: int = Field(..., ge=0)
+
+@app.post("/join_table")
+def join_table(body: JoinTableBody):
+    table = next((t for t in tables if t.id == body.table_id), None)
+    if table is None:
+        raise HTTPException(status_code=404, detail="Table not found")
+
+    if table.game is not None:
+        raise HTTPException(status_code=409, detail="Game already running")
+
+    user = next((u for u in users if u.name == body.username), None)
+    if user is None or not verify_password(body.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    if any(player.name == user.name for player in table.players):
+        return {"ok": False}
+
+    table.players.append(user)
+    return {"ok": True}
+
+@app.post("/my_cards")
+def login(body: JoinTableBody):
+    table = next((t for t in tables if t.id == body.table_id), None)
+    user = next((u for u in users if u.name == body.username), None)
+    
+    if verify_password(body.password, user.password_hash):
+        return {
+            "ok": True,
+            "cards": table
+        }
+    
+    return {"ok": False}
+
+
+# === === === === === === === ===
+
 
 def run():
     uvicorn.run(
