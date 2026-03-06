@@ -1,10 +1,11 @@
 import json
 import urllib.request
 import urllib.error
+import time
 
 import poker
 
-BASE = "http://127.0.0.1:8000"
+BASE = "http://127.0.0.1:6767"
 
 def post_json(path: str, data: dict) -> tuple[int, dict]:
     body = json.dumps(data).encode("utf-8")
@@ -54,28 +55,11 @@ def get_json(path: str, headers: dict = None) -> tuple[int, dict]:
     except Exception as e:
         return 0, {"error": str(e)}
 
-def print_cards_in_line(*cards: poker.Card, spacer = "   ", print_it = True):
-    if cards:
-        result = [[] for _ in range(len(cards[0].ascii()))]
-        for card in cards:
-            for i, line in enumerate(card.ascii()):
-                result[i].append(line)
-        result = [
-            spacer.join(line)
-            for line in result
-        ]
-        if print_it:
-            print("\n".join(result))
-        return result
-    if print_it:
-        print("\n" * 7)
-    return []
-
 if __name__ == "__main__":
     import os
     os.system("clear; clear")
     
-    print_cards_in_line(
+    poker.print_cards_in_line(
         poker.Card(poker.Rank.SEVEN, poker.Suit.HEARTS),
         poker.Card(poker.Rank.KING, poker.Suit.CLUBS),
         poker.Card(poker.Rank.QUEEN, poker.Suit.SPADES),
@@ -94,3 +78,39 @@ if __name__ == "__main__":
     print(status, data)
     status, data = post_json("/join_table", {"username": "hans", "password": "geheim", "table_id": 0})
     print(status, data)
+    
+    time.sleep(25)
+    
+    # --- PREFLOP --- ---
+    
+    # micha bets big blind
+    
+    # hans bets small blind
+    
+    # --- FLOP --- ---
+    
+    # micha checks
+    
+    # hans raises by 3
+    
+    # micha calls
+    
+    # --- TURN --- ---
+    
+    # micha raises by 10
+    
+    # hans raises by 2
+    
+    # micha calls
+    
+    # --- RIVER --- ---
+    
+    # micha raises by 10
+    
+    # hans calls
+    
+    # --- SHOWDOWN --- ---
+    
+    # micha reveals his cards
+    
+    # hans reveals his cards

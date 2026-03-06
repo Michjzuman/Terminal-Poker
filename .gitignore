@@ -43,3 +43,9 @@ ruff_cache/
 .DS_Store
 .vscode/
 .idea/
+
+# --- Testing ---
+test.py
+
+# --- Storage ---
+data.pickle

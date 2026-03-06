@@ -8,7 +8,7 @@ import os
 
 import poker
 
-WAIT_UNITL_ROUND_START = 20
+WAIT_UNITL_ROUND_START = 5 #20
 
 table_counter = 0
 
@@ -59,6 +59,9 @@ class Table:
                 if self.count_down <= 0:
                     self.game = poker.Game(*self.players)
             await asyncio.sleep(1)
+        
+        self.game.deal_cards()
+        
         while not self.game.finished:
             self.info = {
                 "turn": self.game.turn,
@@ -68,8 +71,21 @@ class Table:
                 "community_cards": self.game.community_cards
             }
             
-            self.game.deal_cards()
-            self.game.next_phase()
+            while True:
+                self.game.play_move()
+                
+                self.game.your_turn()
+                
+                self.info["turn"] = self.game.turn
+                
+                if self.game.agressor == self.game.turn:
+                    print("done")
+                    break
+                else:
+                    print("waiting")
+                    await asyncio.sleep(1)
+            
+                self.game.next_phase()
             
             await asyncio.sleep(1)
 
@@ -175,7 +191,7 @@ def join_table(body: JoinTableBody):
     return {"ok": True}
 
 @app.post("/my_cards")
-def login(body: JoinTableBody):
+def my_cards(body: JoinTableBody):
     table = next((t for t in tables if t.id == body.table_id), None)
     user = next((u for u in users if u.name == body.username), None)
     
@@ -187,6 +203,23 @@ def login(body: JoinTableBody):
     
     return {"ok": False}
 
+class MoveBody(JoinTableBody):
+    move_type: str = Field(..., min_length=1, max_length=64)
+    amount: int = Field(default=None, ge=0)
+
+@app.post("/do_move")
+def do_move(body: MoveBody):
+    table = next((t for t in tables if t.id == body.table_id), None)
+    user = next((u for u in users if u.name == body.username), None)
+    
+    try:
+        move = poker.Move(body.move_type, body.amount)
+        user.do_move(move)
+    except ValueError:
+        return {"ok": False}
+
+    table.players.append(user)
+    return {"ok": True}
 
 # === === === === === === === ===
 
@@ -195,7 +228,7 @@ def run():
     uvicorn.run(
         "server:app",
         host="0.0.0.0",
-        port=8000,
+        port=6767,
         reload=False
     )
 
