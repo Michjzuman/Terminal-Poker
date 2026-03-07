@@ -371,7 +371,6 @@ class UI:
     
     def run(self):
         self.intro()
-        
         self.home()
                 
 
