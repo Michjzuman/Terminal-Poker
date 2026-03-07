@@ -225,40 +225,39 @@ class Player:
         self.bet: int = 0
         self.is_in: bool = True
         self.game: "Game"
-        self.move: Move
+        self.move: Move | None = None
     
     def do_move(self, move: Move):
-        if move.type in [MoveType.CHECK, MoveType.CALL, MoveType.RERAISE]:
-            self.money -= self.game.bet - self.bet
-            self.bet = self.game.bet
+
+        if isinstance(move.type, MoveType.CHECK):
+            return True
         
-        if move.type in [MoveType.BET, MoveType.RAISE, MoveType.RERAISE]:
-            self.money -= move.amount
-            self.bet += move.amount
-            self.game.bet += move.amount
-        
-        if move.type in [MoveType.FOLD]:
-            self.is_in = False
-        
-        self.game.history.append(move)
+        self.game.bet = self.bet
+        self.game.history.append(Move(move_type, move.amount))
     
     @property
     def possible_moves(self) -> list[MoveType]:
-        result = []
+        if not self.is_in:
+            return []
         
-        result.append(MoveType.FOLD)
+        result = [MoveType.FOLD]
+        to_call = max(0, self.game.bet - self.bet)
         
-        if self.game.bet > self.bet:
-            result.append(MoveType.CALL)
-        else:
+        if to_call == 0:
             result.append(MoveType.CHECK)
+        elif self.money >= to_call:
+            result.append(MoveType.CALL)
         
         if self.game.bet == 0:
-            result.append(MoveType.BET)
-        elif self.game.history[-1] in [MoveType.RAISE,MoveType.RERAISE]:
-            result.append(MoveType.RERAISE)
+            if self.money >= self.game.big_blind:
+                result.append(MoveType.BET)
         else:
-            result.append(MoveType.RAISE)
+            min_raise_total = to_call + self.game.last_full_raise
+            if self.money >= min_raise_total:
+                if self.game.raises_in_round > 0:
+                    result.append(MoveType.RERAISE)
+                else:
+                    result.append(MoveType.RAISE)
         
         return result
 
@@ -306,15 +305,27 @@ class Game:
             for player in self.players:
                 self.pool += player.bet
                 player.bet = 0
+            
+            self.bet = 0
+            self.last_full_raise = self.big_blind
+            self.raises_in_round = 0
 
     def your_turn(self):
         self.turn += 1
         self.turn %= len(self.players)
 
-    def play_move(self):
+    def play_move(self) -> bool:
         player = self.players[self.turn]
-        player.do_move(player.move)
-
+        move = player.move
+        if move is None:
+            return False
+        
+        try:
+            player.do_move(move)
+            player.move = None
+            return True
+        except ValueError:
+            return False
 
 
 if __name__ == "__main__":

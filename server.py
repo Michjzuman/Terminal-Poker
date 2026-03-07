@@ -63,26 +63,36 @@ class Table:
         self.game.deal_cards()
         
         while not self.game.finished:
-            self.info = {
-                "turn": self.game.turn,
-                "small_blind": self.game.small_blind,
-                "big_blind": self.game.big_blind,
-                "phase": self.game.phase,
-                "community_cards": self.game.community_cards
-            }
-            
             while True:
-                self.game.play_move()
+                self.info = {
+                    "bet": self.game.bet,
+                    "turn": self.game.turn,
+                    "small_blind": self.game.small_blind,
+                    "big_blind": self.game.big_blind,
+                    "phase": self.game.phase,
+                    "community_cards": self.game.community_cards,
+                    "players": [
+                        {
+                            "name": player.name,
+                            "money": player.money,
+                            "is_is": player.is_in
+                        }
+                        for player in self.players
+                    ]
+                }
+                while True:
+                    if self.game.play_move():
+                        print("moved")
+                        break
+                    await asyncio.sleep(0.1)
                 
                 self.game.your_turn()
                 
                 self.info["turn"] = self.game.turn
                 
                 if self.game.agressor == self.game.turn:
-                    print("done")
                     break
                 else:
-                    print("waiting")
                     await asyncio.sleep(1)
             
                 self.game.next_phase()
@@ -95,7 +105,7 @@ class User(poker.Player):
         self.password_hash: str = password_hash
         self.active: str = password_hash
 
-tables: list[Table] = [Table(), Table()]
+tables: list[Table] = [Table()]
 
 users: list[User] = []
 
@@ -106,7 +116,7 @@ users: list[User] = []
 
 @app.get("/")
 def root():
-    return {"ok": True}
+    return {"ok": True, "poker": True}
 
 @app.get("/hello")
 def hello():
@@ -214,7 +224,8 @@ def do_move(body: MoveBody):
     
     try:
         move = poker.Move(body.move_type, body.amount)
-        user.do_move(move)
+        user.move = move
+        print("move found!")
     except ValueError:
         return {"ok": False}
 
