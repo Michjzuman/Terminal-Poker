@@ -9,13 +9,13 @@
 
     📂 Terminal-Poker
     │
-    ├─ 📄 poker.py <span style="color: blue">(Poker logic)</span>
+    ├─ 📄 poker.py
     │
-    ├─ 📄 server.py <span style="color: blue">(Server logic)</span>
-    │  <p style="color: blue">╰─> Run to start a server.</p>
+    ├─ 📄 server.py
+    │  ╰─> Run this to start a server.
     │
-    ╰─ 📄 play.py <span style="color: blue">(User Interface)</span>
-       <p style="color: blue">╰─> Run this to play the game.</p>
+    ╰─ 📄 play.py
+       ╰─> Run this to play the game.
 
 ---
 
