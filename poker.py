@@ -72,6 +72,7 @@ class Card:
         self.suit: Suit = suit
     
     def ascii(self, old_design: bool = False):
+        
         if self.rank == Rank.KING:
             design = [
                 f"┌───────┐",
@@ -105,11 +106,22 @@ class Card:
                 f"└───────┘",
                 f"   J {self.suit.symbol}   "
             ]
+        elif self.rank == Rank.ACE and self.suit == Suit.SPADES:
+            design = [
+                f"┌───────┐",
+                f"│       │",
+                f"│  /A\  │",
+                f"│ (@♠@) │",
+                f"│  /_\  │",
+                f"│       │",
+                f"└───────┘",
+                f"   A ♠   "
+            ]
         else:
             def a(l: list[str]):
-                return self.suit.symbol if not self.rank in l else ' '
+                return self.suit.symbol if not self.rank.value in l else ' '
             def b(l: list[str]):
-                return self.suit.symbol if self.rank in l else ' '
+                return self.suit.symbol if self.rank.value in l else ' '
             design = [
                 f"┌───────┐",
                 f"│ {a(['A', '2', '3'])} {b(['2', '3'])} {a(['A', '2', '3'])} │",
@@ -118,7 +130,7 @@ class Card:
                 f"│ {b(['9', '10'])} {b(['8', '10'])} {b(['9', '10'])} │",
                 f"│ {a(['A', '2', '3'])} {b(['2', '3'])} {a(['A', '2', '3'])} │",
                 f"└───────┘",
-                f"  {' ' if len(str(self.rank)) == 1 else ''} {self.rank.value} {self.suit.symbol}   "
+                f" {' ' if len(self.rank.value) == 1 else ''} {self.rank.value} {self.suit.symbol}   "
             ]
         
         if old_design:
