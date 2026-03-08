@@ -71,7 +71,14 @@ class Card:
         self.rank: Rank = rank
         self.suit: Suit = suit
     
-    def ascii(self, old_design: bool = False):
+    def ascii(self, *,
+            old_design: bool = False,
+            round_design: bool = False,
+            thick_design: bool = False,
+            royal_design: bool = False,
+            dashed_design: bool = False,
+            fancy_design: bool = False
+        ):
         
         if self.rank == Rank.KING:
             design = [
@@ -142,6 +149,52 @@ class Card:
                     .replace("└───────┘", "+-------+")
                 )
             design = updated_design
+        elif round_design:
+            updated_design = []
+            for line in design:
+                updated_design.append(line
+                    .replace("┌", "╭")
+                    .replace("└", "╰")
+                    .replace("┐", "╮")
+                    .replace("┘", "╯")
+                )
+            design = updated_design
+        elif thick_design:
+            updated_design = []
+            for line in design:
+                updated_design.append(line
+                    .replace("┌───────┐", "╔═══════╗")
+                    .replace("│", "║")
+                    .replace("└───────┘", "╚═══════╝")
+                )
+            design = updated_design
+        elif royal_design:
+            updated_design = []
+            for line in design:
+                updated_design.append(line
+                    .replace("┌───────┐", "╔┄┄┄┄┄┄┄╗")
+                    .replace("│", "┊")
+                    .replace("└───────┘", "╚┄┄┄┄┄┄┄╝")
+                )
+            design = updated_design
+        elif dashed_design:
+            updated_design = []
+            for line in design:
+                updated_design.append(line
+                    .replace("┌───────┐", "╭┄┄┄┄┄┄┄╮")
+                    .replace("│", "┊")
+                    .replace("└───────┘", "╰┄┄┄┄┄┄┄╯")
+                )
+            design = updated_design
+        elif fancy_design:
+            updated_design = []
+            for line in design:
+                updated_design.append(line
+                    .replace("┌───────┐", "╔ • • • ╗")
+                    .replace("│", "•")
+                    .replace("└───────┘", "╚ • • • ╝")
+                )
+            design = updated_design
         
         result = design[:1]
         
@@ -152,12 +205,26 @@ class Card:
         result.append(f"{self.suit.color}{design[-1]}\033[0m")
         
         return result
+    
+    class Back:
+        def ascii():
+            GRAY = "\033[90m"
+            return [
+                f"┌───────┐",
+                f"│ {GRAY}><><>\033[0m │",
+                f"│ {GRAY}<><><\033[0m │",
+                f"│ {GRAY}><><>\033[0m │",
+                f"│ {GRAY}<><><\033[0m │",
+                f"│ {GRAY}><><>\033[0m │",
+                f"└───────┘",
+                f"         "
+            ]
 
-def print_cards_in_line(*cards: Card, spacer = "   ", print_it = True):
+def print_cards_in_line(*cards: Card, spacer = "   ", print_it = True, **kwargs):
     if cards:
         result = [[] for _ in range(len(cards[0].ascii()))]
         for card in cards:
-            for i, line in enumerate(card.ascii()):
+            for i, line in enumerate(card.ascii(**kwargs)):
                 result[i].append(line)
         result = [
             spacer.join(line)

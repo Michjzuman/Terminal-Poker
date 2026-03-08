@@ -9,6 +9,7 @@ import sys
 import os
 import random
 import math
+import select
 
 import poker
 
@@ -17,12 +18,10 @@ if os.name != "nt":
     import termios
     import tty
 
-BASE = "http://127.0.0.1:6767"
-
-def post_json(path: str, data: dict) -> tuple[int, dict]:
+def post_json(host: str, path: str, data: dict) -> tuple[int, dict]:
     body = json.dumps(data).encode("utf-8")
     req = urllib.request.Request(
-        url=BASE + path,
+        url=host + path,
         data=body,
         headers={
             "Content-Type": "application/json",
@@ -44,9 +43,9 @@ def post_json(path: str, data: dict) -> tuple[int, dict]:
     except Exception as e:
         return 0, {"error": str(e)}
 
-def get_json(path: str, headers: dict = None) -> tuple[int, dict]:
+def get_json(host: str, path: str, headers: dict = None) -> tuple[int, dict]:
     req = urllib.request.Request(
-        url=BASE + path,
+        url=host + path,
         headers={
             "Accept": "application/json",
             **(headers or {})
@@ -67,6 +66,8 @@ def get_json(path: str, headers: dict = None) -> tuple[int, dict]:
     except Exception as e:
         return 0, {"error": str(e)}
 
+def read_json_file(path: str)
+
 @contextmanager
 def cbreak_stdin():
     if os.name == "nt" or not sys.stdin.isatty():
@@ -86,23 +87,21 @@ def read_key():
         ch = os.read(sys.stdin.fileno(), 1)
     else:
         ch = sys.stdin.buffer.read(1)
+
     if not ch:
         return None
 
     if ch in (b"\r", b"\n"):
         return "ENTER"
 
-    if ch in (b"q", b"Q"):
-        return "QUIT"
+    if ch == b" ":
+        return " "
 
-    if ch in (b"w", b"W"):
-        return "UP"
+    if ch in (b"\t",):
+        return "TAB"
 
-    if ch in (b"s", b"S"):
-        return "DOWN"
-
-    if ch in (b"1", b"2", b"3", b"4", b"5", b"6"):
-        return ch.decode()
+    if ch in (b"\x7f", b"\b"):
+        return "BACKSPACE"
 
     if ch == b"\x1b":
         seq = b""
@@ -133,24 +132,56 @@ def read_key():
             return "RIGHT"
         if (seq.startswith(b"[") or seq.startswith(b"O")) and seq.endswith(b"D"):
             return "LEFT"
+
         return "ESC"
+
+    try:
+        char = ch.decode("utf-8")
+    except UnicodeDecodeError:
+        return "OTHER"
+
+    if char.islower():
+        return char
+
+    if char.isupper():
+        return char
+
+    if char.isdigit():
+        return char
+
+    special_chars = {
+        "!": "!", '"': '"', "#": "#", "$": "$", "%": "%", "&": "&", "'": "'",
+        "(": "(", ")": ")", "*": "*", "+": "+", ",": ",", "-": "-", ".": ".",
+        "/": "/", ":": ":", ";": ";", "<": "<", "=": "=", ">": ">", "?": "?",
+        "@": "@", "[": "[", "\\": "\\", "]": "]", "^": "^", "_": "_", "`": "`",
+        "{": "{", "|": "|","}": "}", "~": "~", "ä": "ä", "ö": "ö", "ü": "ü",
+        "Ä": "Ä","Ö": "Ö", "Ü": "Ü"
+    }
+
+    if char in special_chars:
+        return special_chars[char]
 
     return "OTHER"
 
 class UI:
     def __init__(self):
-        self.w = 67
-        self.h = 25
+        self.w = 78
+        self.h = 26
         self.text: list[str] = []
         self.reset_text()
         self.fps = 10
-        self.home_options = [
-            "Server List",
-            "Minigames",
-            "Statistics",
-            "Settings",
-        ]
         self.note = ""
+        self.servers = {
+            "Local Server": "http://127.0.0.1:6767"
+        }
+        self.current_server: int = 0
+        
+        self.username: str = "micha"
+        self.password: str = "geheim"
+    
+    @property
+    def current_host(self):
+        return list(self.servers.values())[self.current_server]
     
     class Color(Enum):
         RESET = "\033[0m"
@@ -199,6 +230,22 @@ class UI:
         HIDDEN = "\033[8m"
         STRIKETHROUGH = "\033[9m"
 
+    def true_len(text: str, return_diff: bool = False):
+        minus = 0
+        reader = ""
+        for char in text:
+            if char == "\x1b":
+                reader = ""
+            reader += char
+            if reader in [c.value for c in list(UI.Color)]:
+                minus += len(reader)
+                reader = ""
+        
+        if return_diff:
+            return minus
+        else:
+            return len(text) - minus
+
     def clear_shell(self):
         os.system("clear; clear")
 
@@ -224,37 +271,27 @@ class UI:
         y: int
         color: "UI.Color" = None
 
-    def draw_object(self, obj: Object):
+    def draw_object(self, *args, **kwargs):
+        obj = UI.Object(*args, **kwargs)
         color = obj.color
         if color is None:
-            color = random.choice(
-                [self.Color.RED, self.Color.BLUE, self.Color.MAGENTA, self.Color.YELLOW]
-            )
+            color = UI.Color.WHITE
         
         for i, line in enumerate(obj.text):
-            plus = 0
-
-            reader = ""
-            for char in self.text[obj.y + i]:
-                if char == "\x1b":
-                    reader = ""
-                reader += char
-                if reader in [c.value for c in list(self.Color)]:
-                    plus += len(reader)
-                    reader = ""
+            plus = UI.true_len(self.text[obj.y + i], True)
 
             self.text[obj.y + i] = (
                 "".join(list(self.text[obj.y + i])[:obj.x + plus]) +
                 color.value + line + self.Color.RESET.value +
-                "".join(list(self.text[obj.y + i])[obj.x + plus + len(line):])
+                "".join(list(self.text[obj.y + i])[obj.x + plus + UI.true_len(line):])
             )
 
-    def poker_logo(self, x, y):
-        self.draw_object(UI.Object(
+    def poker_logo(self, x, y, color):
+        self.draw_object(
             ["Michjzuman's Terminal-"],
-            x + 12, y, self.Color.GRAY
-        ))
-        self.draw_object(UI.Object(
+            x + 13, y, self.Color.GRAY
+        )
+        self.draw_object(
             [
                 "    _____    ____     ___ ___    _______  _____ ",
                 "   /  _  | /  __  \  /  //  /   /  ____/ /  _  |",
@@ -262,43 +299,94 @@ class UI:
                 " /  /    /  /_/  / /  /\  \   /  /___  /  /| |  ",
                 "/__/     \______/ /__/  \__\ /______/ /__/ |_|  "
             ],
-            x, y + 1, self.Color.YELLOW
-        ))
+            x, y + 1, color
+        )
 
     def suit_logos(self, x, y, number):
         if number > 0:
-            self.draw_object(UI.Object([
+            self.draw_object([
                 " __  __ ",
                 "|  \/  |",
                 " \    / ",
                 "   \/   "
-            ], x, y, self.Color.RED))
+            ], x, y, self.Color.RED)
             
         if number > 1:
-            self.draw_object(UI.Object([
+            self.draw_object([
                 "   __   ",
                 " _(  )_ ",
                 "(__  __)",
                 "   ||   "
-            ], x + 10, y, self.Color.YELLOW))
+            ], x + 10, y, self.Color.YELLOW)
             
         if number > 2:
-            self.draw_object(UI.Object([
+            self.draw_object([
                 "   /\   ",
                 "  /  \  ",
                 "  \  /  ",
                 "   \/   "
-            ], x + 20, y, self.Color.MAGENTA))
+            ], x + 20, y, self.Color.MAGENTA)
             
         if number > 3:
-            self.draw_object(UI.Object([
+            self.draw_object([
                 "   /\   ",
                 "  /  \  ",
                 " (_  _) ",
                 "   ||   "
-            ], x + 30, y, self.Color.BLUE))
+            ], x + 30, y, self.Color.BLUE)
 
-    def intro(self):
+    def label(self, text, y, color = None):
+        if color is None:
+            color = UI.Color.WHITE
+        self.draw_object(
+            [text],
+            round(self.w / 2 - len(text) / 2), y,
+            color
+        )
+
+    def menu(self, pointer, options, color, y = 13, w = 30, selection = None):
+        for i, option in enumerate(options):
+            text = option + (" (current)" if i == selection else "")
+            
+            half = (w - 10 - UI.true_len(text)) / 2
+            c = color if pointer == i else UI.Color.GRAY
+            star = "*" if selection == i else " "
+            center = f"{star} {' ' * math.floor(half)}{UI.Color.BOLD.value}{text}{UI.Color.RESET.value}{c.value}{' ' * math.ceil(half)} {star}"
+            self.draw_object(
+                [
+                    f"╭{'─' * (w - 2)}╮",
+                    f"""│  {center}  │""",
+                    f"╰{'─' * (w - 2)}╯"
+                ] if pointer == i else [
+                    f" ╭{'┄' * (w - 4)}╮ ",
+                    f""" ┊ {center} ┊ """,
+                    f" ╰{'┄' * (w - 4)}╯ "
+                ],
+                round(self.w / 2 - w / 2), y + i * 3, c
+            )
+    
+    def text_input(self, text: str, pointer: bool, y: int = 10, label: str = "", hidden: bool = False):
+        w = 30
+        content = (
+            "*" * len(text[:(w - 5)])
+            if hidden else
+            (
+                text[-(w - 5):]
+                if pointer else
+                text[:(w - 5)]
+            )
+        ) + ("┃" if pointer else "")
+        box = [] if label == "" else [f" {label}"]
+        box += [
+            f"┌{'─' * (w - 2)}┐",
+            f"│ {content}{' ' * (w - 4 - len(content))} │",
+            f"└{'─' * (w - 2)}┘"
+        ]
+        self.draw_object(box, round(self.w / 2 - max(len(line) for line in box) / 2), y)
+    
+    
+    
+    def intro_view(self):
         self.note = "Made by Michjzuman"
         
         def glitch(text, prob: int):
@@ -316,8 +404,8 @@ class UI:
                 4 - max(0, frame - 14)
             ))
             
-            logo_y = 13 - max(0, frame - 20)
-            self.poker_logo(round(self.w / 2) - 24, logo_y)
+            logo_y = 12 - max(0, frame - 20) * 2
+            self.poker_logo(round(self.w / 2) - 24, logo_y, UI.Color.YELLOW)
 
             glitch(self.text, 100 - frame * 10)
             
@@ -329,50 +417,304 @@ class UI:
             if logo_y <= 4:
                 break
     
-    def home(self):
-        self.note = "↑/↓: Move • ENTER: Select • Q: Quit"
-        menu_w = 30
-        
-        pointer = 0
+    def table_view(self, id):
+        self.note = "↑/↓: Move • ENTER/SPACE: Select • Q: Quit"
         with cbreak_stdin():
             while True:
                 self.reset_text()
                 
-                self.poker_logo(round(self.w / 2) - 24, 4)
-
-                for i, option in enumerate(self.home_options):
-                    half = (menu_w - 8 - len(option)) / 2
-                    point = '*' if pointer == i else ' '
-                    self.draw_object(UI.Object(
-                        [
-                            " " * menu_w,
-                            f""" {point} [{' ' * math.floor(half)}{option}{' ' * math.ceil(half)}] {point} """,
-                            " " * menu_w
-                        ],
-                        round(self.w / 2 - menu_w / 2), 12 + i * 3,
-                        UI.Color.BLUE_BG if pointer == i else UI.Color.GRAY
-                    ))
-
+                try:
+                    status, data = get_json(self.current_host, "/get_tables")
+                    tables = [
+                        f"""{
+                            UI.Color.STRIKETHROUGH.value if t['active'] else ''
+                        }Table {t['id'] + 1}     {
+                            '(playing)' if t['active'] else '(waiting)'
+                        }   ({t['players']}/8)"""
+                        for t in data["tables"]
+                    ]
+                    for t in data["tables"]:
+                        if t["id"] == id:
+                            table = t
+                except TypeError:
+                    return
+                
+                # community cards
+                self.draw_object(poker.print_cards_in_line(
+                    poker.Card.Back,
+                    poker.Card(poker.Rank.SEVEN, poker.Suit.HEARTS),
+                    poker.Card(poker.Rank.SEVEN, poker.Suit.HEARTS),
+                    poker.Card(poker.Rank.SEVEN, poker.Suit.HEARTS),
+                    poker.Card(poker.Rank.SEVEN, poker.Suit.HEARTS),
+                    poker.Card(poker.Rank.SEVEN, poker.Suit.HEARTS),
+                    print_it = False,
+                    spacer = " "
+                ), 5, 2, UI.Color.WHITE)
+                
+                # pool
+                pool = "67*"
+                self.draw_object([pool], 71 - round(len(pool) / 2), 5, UI.Color.GREEN)
+                
+                # my cards
+                self.draw_object(poker.print_cards_in_line(
+                    poker.Card(poker.Rank.KING, poker.Suit.HEARTS),
+                    poker.Card(poker.Rank.JACK, poker.Suit.HEARTS),
+                    print_it = False
+                ), 5, 16, UI.Color.WHITE)
+                
+                # players list
+                players_list = []
+                for i, player in enumerate(table["info"]["players"]):
+                    arrow = ">" if i == table["info"]["turn"] else " "
+                    green = UI.Color.GREEN.value if player["is_in"] else ""
+                    gray = "" if player["is_in"] else UI.Color.GRAY.value + UI.Color.STRIKETHROUGH.value
+                    reset = UI.Color.RESET.value if player["is_in"] else UI.Color.GRAY.value
+                    players_list.append(
+                        f"{gray}{arrow} [{green}10*{reset}] {player['name']} {green}{player['money']}*"
+                    )
+                self.draw_object("\n\n".join(players_list).split("\n"), 45, 16)
+                
+                
+                self.draw()
+                
+                while True:
+                    key = read_key()
+                    if key in (None, "q", "Q"):
+                        exit()
+                    
+                    elif key == "ESC":
+                        return
+    
+    def join_table_view(self):
+        self.note = "↑/↓: Move • ENTER/SPACE: Select • Q: Quit"
+        
+        pointer = 0
+        
+        with cbreak_stdin():
+            while True:
+                self.reset_text()
+                
+                try:
+                    status, data = get_json(self.current_host, "/get_tables")
+                    tables = [
+                        f"""{
+                            UI.Color.STRIKETHROUGH.value if table['active'] else ''
+                        }Table {table['id'] + 1}     {
+                            '(playing)' if table['active'] else '(waiting)'
+                        }   ({table['players']}/8)"""
+                        for table in data["tables"]
+                    ]
+                except TypeError:
+                    return
+                
+                self.label("Join Table", 5, UI.Color.GREEN)
+                
+                self.menu(pointer, tables, UI.Color.GREEN, y = 10, w = 40)
+                
+                self.draw()
+                
+                while True:
+                    key = read_key()
+                    if key in (None, "q", "Q"):
+                        exit()
+                    if key == "UP":
+                        pointer -= 1
+                        pointer %= len(tables)
+                        break
+                    elif key == "DOWN":
+                        pointer += 1
+                        pointer %= len(tables)
+                        break
+                    elif key in [" ", "ENTER"]:
+                        self.table_view(data["tables"][pointer]["id"])
+                        break
+                    elif key == "ESC":
+                        return
+    
+    def server_list_view(self):
+        self.current_server = self.picker(
+            self.servers,
+            UI.Color.CYAN,
+            self.current_server,
+            "Server List"
+        )
+    
+    def minigames_view(self):
+        pass
+    
+    def statistics_view(self):
+        pass
+    
+    def settings_view(self):
+        pass
+    
+    def home_view(self):
+        self.note = "↑/↓: Move • ENTER/SPACE: Select • Q: Quit"
+        pointer = 0
+        options = {
+            "Join Table": self.join_table_view,
+            "Settings": self.settings_view,
+            "Change Server": self.server_list_view
+        }
+        
+        try:
+            status, data = get_json(self.current_host, "/money")
+            money = data["players"][self.username]
+        except TypeError:
+            money = None
+        
+        with cbreak_stdin():
+            while True:
+                self.reset_text()
+                
+                if money is not None:
+                    self.draw_object([f"{money}*"], 2, 1, UI.Color.GREEN)
+                
+                self.poker_logo(round(self.w / 2) - 24, 4, UI.Color.YELLOW)
+                
+                self.menu(pointer, options, UI.Color.YELLOW)
+                
+                self.draw()
+                
+                while True:
+                    key = read_key()
+                    if key in (None, "q", "Q"):
+                        exit()
+                    if key == "UP":
+                        pointer -= 1
+                        pointer %= len(options)
+                        break
+                    elif key == "DOWN":
+                        pointer += 1
+                        pointer %= len(options)
+                        break
+                    elif key in ["ENTER", " "]:
+                        list(options.values())[pointer]()
+                        break
+    
+    def login_register_form_view(self, login):
+        self.note = "↑/↓: Move • ENTER: Confirm • ^C: Quit"
+        
+        pointer = 0
+        text_inputs = {
+            "Username": "",
+            "Password": ""
+        }
+        error = ""
+        if not login:
+            text_inputs["Confirm Password"] = ""
+        
+        with cbreak_stdin():
+            while True:
+                self.reset_text()
+                
+                self.draw_object(["< ESC"], 2, 1, UI.Color.GRAY)
+                
+                self.label("Login" if login else "Register", 6 if login else 4)
+                self.label(error, 7 if login else 5, UI.Color.RED)
+                
+                for i, text_input in enumerate(text_inputs):
+                    self.text_input(
+                        text_inputs[text_input], pointer == i, (10 if login else 7) + 5 * i, text_input,
+                        "Password" in text_input
+                    )
+                
+                self.menu(pointer - len(text_inputs), ["Done"], UI.Color.CYAN, 21 if login else 22)
                 
                 self.draw()
                 
                 while True:
                     key = read_key()
                     if key in (None, "QUIT"):
+                        exit()
+                    elif key == "ESC":
                         return
+                    elif key == "UP":
+                        pointer -= 1
+                        pointer %= len(text_inputs) + 1
+                        break
+                    elif (key == "ENTER" and pointer >= len(text_inputs) - 1) or (key == " " and pointer == len(text_inputs)):
+                        if not login and text_inputs["Password"] != text_inputs["Confirm Password"]:
+                            error = "wrong confirmation password"
+                            break
+                        status, data = post_json(self.current_host, "/login" if login else "/register", {
+                            "username": text_inputs["Username"],
+                            "password": text_inputs["Password"]
+                        })
+                        print(status, data)
+                        if data["ok"]:
+                            self.username = text_inputs["Username"]
+                            self.password = text_inputs["Password"]
+                            return True
+                        elif status == 0:
+                            error = "the server seems to be down"
+                        else:
+                            if login:
+                                error = "wrong username or password"
+                            else:
+                                error = "username is already taken"
+                        break
+                    elif key in ["DOWN", "ENTER", "TAB"]:
+                        pointer += 1
+                        pointer %= len(text_inputs) + 1
+                        break
+                    elif key == "BACKSPACE" and pointer < len(text_inputs):
+                        text_inputs[list(text_inputs.keys())[pointer]] = (
+                            text_inputs[list(text_inputs.keys())[pointer]][:-1]
+                        )
+                        break
+                    elif (key.isalpha() or key.isdigit() or not key.isalnum()) and len(key) == 1 and pointer < len(text_inputs):
+                        text_inputs[list(text_inputs.keys())[pointer]] += key
+                        break
+    
+    def start_view(self):
+        self.note = "↑/↓: Move • ENTER/SPACE: Select • Q: Quit"
+        pointer = 0
+        options = {
+            "Login": True,
+            "Register": False
+        }
+        
+        with cbreak_stdin():
+            while True:
+                self.reset_text()
+                
+                self.poker_logo(round(self.w / 2) - 24, 4, UI.Color.YELLOW)
+                
+                self.menu(pointer, options, UI.Color.YELLOW)
+                
+                self.draw()
+                
+                while True:
+                    key = read_key()
+                    if key in (None, "q", "Q"):
+                        exit()
                     if key == "UP":
                         pointer -= 1
-                        pointer %= len(self.home_options)
+                        pointer %= len(options)
                         break
                     elif key == "DOWN":
                         pointer += 1
-                        pointer %= len(self.home_options)
+                        pointer %= len(options)
+                        break
+                    elif key in ["ENTER", " "]:
+                        if self.login_register_form_view(list(options.values())[pointer]):
+                            return
                         break
     
+    
     def run(self):
-        self.intro()
-        self.home()
-                
+        try:
+            #self.intro_view()
+            self.start_view()
+            self.home_view()
+            #self.join_table_view()
+            #self.table_view(0)
+            #self.login_register_form_view()
+            
+        except KeyboardInterrupt:
+            exit()
+
 
 
 if __name__ == "__main__":
@@ -385,17 +727,19 @@ if __name__ == "__main__":
             poker.Card(poker.Rank.JACK, poker.Suit.DIAMONDS)
         )
         
-        status, data = post_json("/register", {"username": "micha", "password": "geheim"})
+        host = "http://127.0.0.1:6767"
+        
+        status, data = post_json(host, "/register", {"username": "micha", "password": "geheim"})
         print(status, data)
-        status, data = post_json("/register", {"username": "hans", "password": "geheim"})
+        status, data = post_json(host, "/register", {"username": "hans", "password": "geheim"})
         print(status, data)
         
-        status, data = post_json("/login", {"username": "micha", "password": "geheim"})
+        status, data = post_json(host, "/login", {"username": "micha", "password": "geheim"})
         print(status, data)
         
-        status, data = post_json("/join_table", {"username": "micha", "password": "geheim", "table_id": 0})
+        status, data = post_json(host, "/join_table", {"username": "micha", "password": "geheim", "table_id": 0})
         print(status, data)
-        status, data = post_json("/join_table", {"username": "hans", "password": "geheim", "table_id": 0})
+        status, data = post_json(host, "/join_table", {"username": "hans", "password": "geheim", "table_id": 0})
         print(status, data)
         
         time.sleep(7)
@@ -403,7 +747,7 @@ if __name__ == "__main__":
         # --- PREFLOP --- ---
         
         # micha bets big blind
-        status, data = post_json("/do_move", {"move_type": "Bet", "amount": 2, "username": "micha", "password": "geheim", "table_id": 0})
+        status, data = post_json(host, "/do_move", {"move_type": "Bet", "amount": 2, "username": "micha", "password": "geheim", "table_id": 0})
         print(status, data)
         
         # hans bets small blind
@@ -435,6 +779,8 @@ if __name__ == "__main__":
         # micha reveals his cards
         
         # hans reveals his cards
+    
+    #test_run()
     
     ui = UI()
     ui.run()

@@ -1,3 +1,5 @@
+# Under Constuction
+
                  Michjzuman's Terminal-
         _____    ____     ___ ___    _______  _____
        /  _  | /  __  \  /  //  /   /  ____/ /  _  |
@@ -18,5 +20,3 @@
        ╰─> Run this to play the game.
 
 ---
-
-# Under Constuction

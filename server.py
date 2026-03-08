@@ -75,7 +75,7 @@ class Table:
                         {
                             "name": player.name,
                             "money": player.money,
-                            "is_is": player.is_in
+                            "is_in": player.is_in
                         }
                         for player in self.players
                     ]
@@ -105,7 +105,7 @@ class User(poker.Player):
         self.password_hash: str = password_hash
         self.active: str = password_hash
 
-tables: list[Table] = [Table()]
+tables: list[Table] = [Table(), Table(), Table(), Table()]
 
 users: list[User] = []
 
