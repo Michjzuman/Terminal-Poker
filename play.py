@@ -66,7 +66,18 @@ def get_json(host: str, path: str, headers: dict = None) -> tuple[int, dict]:
     except Exception as e:
         return 0, {"error": str(e)}
 
-def read_json_file(path: str)
+def write_json_file(path: str, content):
+    real_path = os.path.abspath(path)
+    with open(real_path, "w", encoding="utf-8") as file:
+        json.dump(content, file, ensure_ascii=False, indent=4)
+
+def read_json_file(path: str):
+    try:
+        real_path = os.path.abspath(path)
+        with open(real_path, "r", encoding="utf-8") as file:
+            return json.load(file)
+    except FileNotFoundError:
+        return False
 
 @contextmanager
 def cbreak_stdin():
@@ -568,7 +579,7 @@ class UI:
                 self.reset_text()
                 
                 if money is not None:
-                    self.draw_object([f"{money}*"], 2, 1, UI.Color.GREEN)
+                    self.draw_object([f"{self.username} {UI.Color.GREEN.value}{money}*"], 2, 1)
                 
                 self.poker_logo(round(self.w / 2) - 24, 4, UI.Color.YELLOW)
                 
@@ -703,9 +714,10 @@ class UI:
                         break
     
     
+    
     def run(self):
         try:
-            #self.intro_view()
+            self.intro_view()
             self.start_view()
             self.home_view()
             #self.join_table_view()
