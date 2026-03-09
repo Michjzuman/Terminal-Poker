@@ -1,3 +1,14 @@
+#
+# play.py
+#
+# Author:
+# Micha Wüthrich
+#
+# Note:
+# Run this file to play the game.
+#
+
+
 from enum import Enum
 from dataclasses import dataclass
 from contextlib import contextmanager
@@ -376,6 +387,23 @@ class UI:
                 round(self.w / 2 - w / 2), y + i * 3, c
             )
     
+    def selector(self, pointer_x, pointer_y, options, y, w = 40):
+        for i, option in enumerate(options):
+            text = f"   {option}{' ' * (w - 20 - len(option))}"
+            color = UI.Color.WHITE if i == pointer_y else UI.Color.GRAY
+            red = UI.Color.RED.value + UI.Color.BOLD.value if 0 == pointer_x and i == pointer_y else UI.Color.GRAY.value
+            green = UI.Color.GREEN.value + UI.Color.BOLD.value if 1 == pointer_x and i == pointer_y else UI.Color.RESET.value + UI.Color.GRAY.value
+            self.draw_object(
+                [
+                    f"╭{'─' * (w - 2)}╮",
+                    f"""│{' ' * len(text)}{red}  ┌───┐ {green} ┌───┐ {color.value}│""",
+                               f"""│{text}{red}  │ N │ {green} │ Y │ {color.value}│""",
+                    f"""│{' ' * len(text)}{red}  └───┘ {green} └───┘ {color.value}│""",
+                    f"╰{'─' * (w - 2)}╯"
+                ],
+                round(self.w / 2 - w / 2), y + i * 5, color
+            )
+    
     def text_input(self, text: str, pointer: bool, y: int = 10, label: str = "", hidden: bool = False):
         w = 30
         content = (
@@ -394,6 +422,9 @@ class UI:
             f"└{'─' * (w - 2)}┘"
         ]
         self.draw_object(box, round(self.w / 2 - max(len(line) for line in box) / 2), y)
+    
+    def back_button(self):
+        self.draw_object(["< ESC"], 2, 1, UI.Color.GRAY)
     
     
     
@@ -504,6 +535,8 @@ class UI:
         with cbreak_stdin():
             while True:
                 self.reset_text()
+                
+                self.back_button()
                 
                 try:
                     status, data = get_json(self.current_host, "/get_tables")
@@ -619,7 +652,7 @@ class UI:
             while True:
                 self.reset_text()
                 
-                self.draw_object(["< ESC"], 2, 1, UI.Color.GRAY)
+                self.back_button()
                 
                 self.label("Login" if login else "Register", 6 if login else 4)
                 self.label(error, 7 if login else 5, UI.Color.RED)
@@ -630,7 +663,7 @@ class UI:
                         "Password" in text_input
                     )
                 
-                self.menu(pointer - len(text_inputs), ["Done"], UI.Color.CYAN, 21 if login else 22)
+                self.menu(pointer - len(text_inputs), ["Done"], UI.Color.CYAN, 21 if login else 23)
                 
                 self.draw()
                 
@@ -717,9 +750,10 @@ class UI:
     
     def run(self):
         try:
-            self.intro_view()
+            #self.intro_view()
             self.start_view()
             self.home_view()
+            
             #self.join_table_view()
             #self.table_view(0)
             #self.login_register_form_view()

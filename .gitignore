@@ -48,4 +48,4 @@ ruff_cache/
 test.py
 
 # --- Storage ---
-data.pickle
+.admin-password-hash.json

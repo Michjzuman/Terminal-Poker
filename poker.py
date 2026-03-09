@@ -1,3 +1,14 @@
+#
+# poker.py
+#
+# Author:
+# Micha Wüthrich
+#
+# Note:
+# Import this file as a python library if you want to play around with the poker game logic.
+#
+
+
 from enum import Enum
 from dataclasses import dataclass
 import random

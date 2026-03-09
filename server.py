@@ -1,14 +1,27 @@
-from fastapi import FastAPI, Query, HTTPException
+#
+# server.py
+#
+# Author:
+# Micha Wüthrich
+#
+# Note:
+# Run this file to host a server.
+#
+
+
+from fastapi import FastAPI, HTTPException
 from contextlib import asynccontextmanager, suppress
 from pydantic import BaseModel, Field
+from getpass import getpass
 import uvicorn
 import bcrypt
 import asyncio
+import json
 import os
 
 import poker
 
-WAIT_UNITL_ROUND_START = 5 #20
+WAIT_UNITL_ROUND_START = 20
 
 table_counter = 0
 
@@ -37,6 +50,19 @@ def hash_password(password: str) -> str:
 
 def verify_password(password: str, hashed: str) -> bool:
     return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
+
+def write_json_file(path: str, content):
+    real_path = os.path.abspath(path)
+    with open(real_path, "w", encoding="utf-8") as file:
+        json.dump(content, file, ensure_ascii=False, indent=4)
+
+def read_json_file(path: str):
+    try:
+        real_path = os.path.abspath(path)
+        with open(real_path, "r", encoding="utf-8") as file:
+            return json.load(file)
+    except FileNotFoundError:
+        return False
 
 class Table:
     def __init__(self):
@@ -105,9 +131,17 @@ class User(poker.Player):
         self.password_hash: str = password_hash
         self.active: str = password_hash
 
-tables: list[Table] = [Table(), Table(), Table(), Table()]
+tables: list[Table] = [Table() for _ in range(4)]
 
 users: list[User] = []
+
+register_requests: list[User] = []
+
+data = {
+    "tables": tables,
+    "users": users,
+    "register_requests": register_requests
+}
 
 
 # === === === === === === === ===
@@ -140,7 +174,7 @@ def get_tables():
     }
 
 @app.get("/money")
-def get_tables():
+def money():
     return {
         "ok": True,
         "players": {
@@ -149,23 +183,63 @@ def get_tables():
         }
     }
 
+@app.get("/register-requests")
+def show_register_requests():
+    return {
+        "ok": True,
+        "register-requests": [
+            user.name
+            for user in register_requests
+        ]
+    }
 
 # === === === === === === === ===
 # --- POST -- ---
 
-
-class LoginBody(BaseModel):
-    username: str = Field(..., min_length=1, max_length=64)
+class PasswordBody(BaseModel):
     password: str = Field(..., min_length=1, max_length=200)
+
+@app.post("/admin-login")
+def admin_login(body: PasswordBody):
+    admin_password_hash = read_json_file(".admin-password-hash.json")["password"]
+    if admin_password_hash and verify_password(body.password, admin_password_hash):
+        return {"ok": True}
+    else:
+        return {"ok": False}
+
+class LoginBody(PasswordBody):
+    username: str = Field(..., min_length=1, max_length=64)
+    
+@app.post("/admin-approve-register-requests")
+def admin_approve_register_requests(body: LoginBody):
+    admin_password_hash = read_json_file(".admin-password-hash.json")["password"]
+    if admin_password_hash and verify_password(body.password, admin_password_hash):
+        for user in register_requests:
+            if user.name == body.username:
+                new_user = user
+                users.append(new_user)
+                register_requests.remove(new_user)
+                return {"ok": True}
+    return {"ok": False}
+
+@app.post("/admin-reject-register-requests")
+def admin_reject_register_requests(body: LoginBody):
+    admin_password_hash = read_json_file(".admin-password-hash.json")["password"]
+    if admin_password_hash and verify_password(body.password, admin_password_hash):
+        for user in register_requests:
+            if user.name == body.username:
+                new_user = user
+                register_requests.remove(new_user)
+                return {"ok": True}
+    return {"ok": False}
 
 @app.post("/register")
 def register(body: LoginBody):
     new_user = User(body.username, hash_password(body.password))
-    for user in users:
+    for user in users + register_requests:
         if user.name == new_user.name:
             return {"ok": False}
-    users.append(new_user)
-    print(f"New User '{new_user.name}' Registered!")
+    register_requests.append(new_user)
     return {"ok": True}
 
 @app.post("/login")
@@ -236,6 +310,8 @@ def do_move(body: MoveBody):
 
 
 def run():
+    password = getpass("New Admin Password: ")
+    write_json_file(".admin-password-hash.json", {"password": hash_password(password)})
     uvicorn.run(
         "server:app",
         host="0.0.0.0",

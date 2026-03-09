@@ -1,3 +1,13 @@
+#
+# card_design_demo.py
+#
+# Author:
+# Micha Wüthrich
+#
+# Note:
+# This file gives you a demo of the ASCII-Card designs i made for this game.
+#
+
 import poker
 
 for rank in list(poker.Rank):
