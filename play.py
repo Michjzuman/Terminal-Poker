@@ -300,13 +300,16 @@ class UI:
             color = UI.Color.WHITE
         
         for i, line in enumerate(obj.text):
-            plus = UI.true_len(self.text[obj.y + i], True)
+            
+            if obj.y + i < self.h:
+            
+                plus = UI.true_len(self.text[obj.y + i], True)
 
-            self.text[obj.y + i] = (
-                "".join(list(self.text[obj.y + i])[:obj.x + plus]) +
-                color.value + line + self.Color.RESET.value +
-                "".join(list(self.text[obj.y + i])[obj.x + plus + UI.true_len(line):])
-            )
+                self.text[obj.y + i] = (
+                    "".join(list(self.text[obj.y + i])[:obj.x + plus]) +
+                    color.value + line + self.Color.RESET.value +
+                    "".join(list(self.text[obj.y + i])[obj.x + plus + UI.true_len(line):])
+                )
 
     def poker_logo(self, x, y, color):
         self.draw_object(
@@ -597,8 +600,9 @@ class UI:
         pointer = 0
         options = {
             "Join Table": self.join_table_view,
+            "Minigames": print,
             "Settings": self.settings_view,
-            "Change Server": self.server_list_view
+            "<-] Logout": None
         }
         
         try:
@@ -633,8 +637,41 @@ class UI:
                         pointer %= len(options)
                         break
                     elif key in ["ENTER", " "]:
+                        if "Logout" in list(options.keys())[pointer]:
+                            return
                         list(options.values())[pointer]()
                         break
+    
+    def wait_for_registration_approval_view(self):
+        self.note = "^C: Quit"
+        
+        money = None
+        tick = 0
+        
+        with cbreak_stdin():
+            while True:
+                self.reset_text()
+                
+                if tick == 0:
+                    try:
+                        status, data = get_json(self.current_host, "/money")
+                        money = data["players"]
+                    except TypeError:
+                        money = {}
+                    if self.username in list(money.keys()):
+                        return True
+                
+                self.label("Waiting for server admin to accept your registration", 13)
+                
+                self.label(["     ", ".    ", ". .  ", ". . ."][tick], 15)
+                
+                self.draw()
+                print(money)
+                
+                tick += 1
+                tick %= 4
+                
+                time.sleep(1)
     
     def login_register_form_view(self, login):
         self.note = "↑/↓: Move • ENTER: Confirm • ^C: Quit"
@@ -669,15 +706,16 @@ class UI:
                 
                 while True:
                     key = read_key()
-                    if key in (None, "QUIT"):
-                        exit()
-                    elif key == "ESC":
+                    if key == "ESC":
                         return
                     elif key == "UP":
                         pointer -= 1
                         pointer %= len(text_inputs) + 1
                         break
                     elif (key == "ENTER" and pointer >= len(text_inputs) - 1) or (key == " " and pointer == len(text_inputs)):
+                        if "" in list(text_inputs.values()):
+                            error = "not all values were given"
+                            break
                         if not login and text_inputs["Password"] != text_inputs["Confirm Password"]:
                             error = "wrong confirmation password"
                             break
@@ -689,9 +727,10 @@ class UI:
                         if data["ok"]:
                             self.username = text_inputs["Username"]
                             self.password = text_inputs["Password"]
+                            self.wait_for_registration_approval_view()
                             return True
                         elif status == 0:
-                            error = "the server seems to be down"
+                            error = "could not connect to server"
                         else:
                             if login:
                                 error = "wrong username or password"
@@ -743,21 +782,15 @@ class UI:
                         break
                     elif key in ["ENTER", " "]:
                         if self.login_register_form_view(list(options.values())[pointer]):
-                            return
+                            self.home_view()
                         break
     
     
     
     def run(self):
         try:
-            #self.intro_view()
+            self.intro_view()
             self.start_view()
-            self.home_view()
-            
-            #self.join_table_view()
-            #self.table_view(0)
-            #self.login_register_form_view()
-            
         except KeyboardInterrupt:
             exit()
 
@@ -765,71 +798,5 @@ class UI:
 
 if __name__ == "__main__":
     
-    def test_run():
-        poker.print_cards_in_line(
-            poker.Card(poker.Rank.SEVEN, poker.Suit.HEARTS),
-            poker.Card(poker.Rank.KING, poker.Suit.CLUBS),
-            poker.Card(poker.Rank.QUEEN, poker.Suit.SPADES),
-            poker.Card(poker.Rank.JACK, poker.Suit.DIAMONDS)
-        )
-        
-        host = "http://127.0.0.1:6767"
-        
-        status, data = post_json(host, "/register", {"username": "micha", "password": "geheim"})
-        print(status, data)
-        status, data = post_json(host, "/register", {"username": "hans", "password": "geheim"})
-        print(status, data)
-        
-        status, data = post_json(host, "/login", {"username": "micha", "password": "geheim"})
-        print(status, data)
-        
-        status, data = post_json(host, "/join_table", {"username": "micha", "password": "geheim", "table_id": 0})
-        print(status, data)
-        status, data = post_json(host, "/join_table", {"username": "hans", "password": "geheim", "table_id": 0})
-        print(status, data)
-        
-        time.sleep(7)
-        
-        # --- PREFLOP --- ---
-        
-        # micha bets big blind
-        status, data = post_json(host, "/do_move", {"move_type": "Bet", "amount": 2, "username": "micha", "password": "geheim", "table_id": 0})
-        print(status, data)
-        
-        # hans bets small blind
-        
-        # --- FLOP --- ---
-        
-        # micha checks
-        
-        # hans raises by 3
-        
-        # micha calls
-        
-        # --- TURN --- ---
-        
-        # micha raises by 10
-        
-        # hans raises by 2
-        
-        # micha calls
-        
-        # --- RIVER --- ---
-        
-        # micha raises by 10
-        
-        # hans calls
-        
-        # --- SHOWDOWN --- ---
-        
-        # micha reveals his cards
-        
-        # hans reveals his cards
-    
-    #test_run()
-    
     ui = UI()
     ui.run()
-    
-    for color in list(UI.Color):
-        print(color.value + "Hello World!" + UI.Color.RESET.value, color)

@@ -41,9 +41,7 @@ def admin_panel_login_view(ui):
             
             while True:
                 key = play.read_key()
-                if key in (None, "QUIT"):
-                    exit()
-                elif key == "ESC":
+                if key == "ESC":
                     return
                 elif key == "UP":
                     pointer -= 1
@@ -81,7 +79,7 @@ def admin_panel_login_view(ui):
                     break
 
 def admin_panel_register_requests_view(ui, host, password):
-    ui.note = "↑/↓/←/→: Move • ENTER/SPACE: Select • Q: Quit"
+    ui.note = "↑/↓/←/→: Move • ENTER/SPACE: Select • R: Reload • Q: Quit"
     pointer_x = 0
     pointer_y = 0
 
@@ -97,13 +95,24 @@ def admin_panel_register_requests_view(ui, host, password):
                 status, data = play.get_json(host, "/register-requests")
                 requests = data["register-requests"]
             
-            except TypeError:
+            except TypeError or KeyError:
                 requests = []
             
             ui.label("Admin Panel", 4, play.UI.Color.RED)
             ui.label("Register Requests", 5, play.UI.Color.RED)
             
-            ui.selector(pointer_x, pointer_y, requests, 8)
+            if len(requests) > 3 and pointer_y > 1:
+                ui.label(". . .", 7)
+            
+            show = min(max(0, pointer_y - 1), len(requests) - 3)
+            
+            ui.selector(
+                pointer_x, (0 if pointer_y == 0 else (2 if pointer_y == len(requests) - 1 else 1)),
+                requests[show:show+3], 8
+            )
+            
+            if len(requests) > 3 and pointer_y < len(requests) - 2:
+                ui.label(". . .", 23)
             
             ui.draw()
             
@@ -115,11 +124,11 @@ def admin_panel_register_requests_view(ui, host, password):
                     return
                 elif key in (None, "r", "R"):
                     break
-                elif key == "UP":
+                elif key == "UP" and len(requests) > 0:
                     pointer_y -= 1
                     pointer_y %= len(requests)
                     break
-                elif key == "DOWN":
+                elif key == "DOWN" and len(requests) > 0:
                     pointer_y += 1
                     pointer_y %= len(requests)
                     break
@@ -185,7 +194,7 @@ def run():
     try:
         ui = play.UI()
         
-        host, password = "http://192.168.1.123:6767", "hello"
+        host, password = "http://localhost:6767", "hello"
         #host, password = admin_panel_login_view(ui)
         
         admin_panel_register_requests_view(ui, host, password)
