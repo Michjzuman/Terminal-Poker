@@ -15,6 +15,7 @@ from contextlib import contextmanager
 import json
 import urllib.request
 import urllib.error
+import subprocess
 import time
 import sys
 import os
@@ -24,10 +25,68 @@ import select
 
 import poker
 
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+def get_project_dir():
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=SCRIPT_DIR,
+            capture_output=True,
+            text=True,
+            timeout=5,
+            check=False
+        )
+    except (FileNotFoundError, OSError, subprocess.SubprocessError):
+        return SCRIPT_DIR
+
+    if result.returncode == 0 and result.stdout.strip():
+        return result.stdout.strip()
+
+    return SCRIPT_DIR
+
+PROJECT_DIR = get_project_dir()
+PLAY_SCRIPT_PATH = os.path.abspath(__file__)
+
 if os.name != "nt":
     import select
     import termios
     import tty
+
+@dataclass
+class GitUpdateState:
+    available: bool = False
+    behind: int = 0
+
+def resolve_project_path(path: str):
+    if os.path.isabs(path):
+        return path
+    return os.path.join(PROJECT_DIR, path)
+
+def run_git_command(*args: str, timeout: int = 10):
+    try:
+        result = subprocess.run(
+            ["git", *args],
+            cwd=PROJECT_DIR,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False
+        )
+    except FileNotFoundError:
+        return 127, "", "git is not installed"
+    except subprocess.TimeoutExpired:
+        return 124, "", "git command timed out"
+    except OSError as e:
+        return 1, "", str(e)
+
+    return result.returncode, result.stdout.strip(), result.stderr.strip()
+
+def last_output_line(stdout: str, stderr: str, fallback: str):
+    for text in [stderr, stdout]:
+        if text:
+            return text.splitlines()[-1]
+    return fallback
 
 def post_json(host: str, path: str, data: dict) -> tuple[int, dict]:
     body = json.dumps(data).encode("utf-8")
@@ -78,13 +137,13 @@ def get_json(host: str, path: str, headers: dict = None) -> tuple[int, dict]:
         return 0, {"error": str(e)}
 
 def write_json_file(path: str, content):
-    real_path = os.path.abspath(path)
+    real_path = resolve_project_path(path)
     with open(real_path, "w", encoding="utf-8") as file:
         json.dump(content, file, ensure_ascii=False, indent=4)
 
 def read_json_file(path: str):
     try:
-        real_path = os.path.abspath(path)
+        real_path = resolve_project_path(path)
         with open(real_path, "r", encoding="utf-8") as file:
             return json.load(file)
     except FileNotFoundError:
@@ -229,6 +288,45 @@ class UI:
     @property
     def current_host(self):
         return list(self.servers.values())[self.current_server]
+
+    def git_update_state(self):
+        code, stdout, _ = run_git_command("rev-parse", "--is-inside-work-tree")
+        if code != 0 or stdout != "true":
+            return GitUpdateState()
+
+        code, _, _ = run_git_command(
+            "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"
+        )
+        if code != 0:
+            return GitUpdateState()
+
+        run_git_command("fetch", "--quiet", timeout=15)
+
+        code, stdout, _ = run_git_command(
+            "rev-list", "--left-right", "--count", "HEAD...@{upstream}"
+        )
+        if code != 0:
+            return GitUpdateState()
+
+        counts = stdout.replace("\t", " ").split()
+        if len(counts) != 2:
+            return GitUpdateState()
+
+        try:
+            behind = int(counts[1])
+        except ValueError:
+            return GitUpdateState()
+
+        return GitUpdateState(available=behind > 0, behind=behind)
+
+    def pull_updates(self):
+        code, stdout, stderr = run_git_command("pull", "--ff-only", timeout=30)
+        if code != 0:
+            return False, last_output_line(stdout, stderr, "git pull failed")
+        return True, last_output_line(stdout, stderr, "update installed")
+
+    def restart_application(self):
+        os.execv(sys.executable, [sys.executable, PLAY_SCRIPT_PATH, *sys.argv[1:]])
     
     class Color(Enum):
         RESET = "\033[0m"
@@ -1004,20 +1102,31 @@ class UI:
     def start_view(self):
         self.note = "↑/↓: Move • ENTER/SPACE: Select • Q: Quit"
         pointer = 0
-        options = {
-            "Login": True,
-            "Register": False
-        }
+        update_state = self.git_update_state()
+        restart_requested = False
         
-        error = ""
+        status_text = ""
+        status_color = UI.Color.RED
         
         with cbreak_stdin():
             while True:
                 self.reset_text()
+
+                options = {
+                    "Login": True,
+                    "Register": False
+                }
+                if update_state.available:
+                    options["Update"] = "update"
+                pointer %= len(options)
                 
                 self.poker_logo(round(self.w / 2) - 24, 4, self.settings.home_screen_color)
                 
-                self.label(error, 11, UI.Color.RED)
+                if update_state.available:
+                    commit_word = "commit" if update_state.behind == 1 else "commits"
+                    self.label(f"{update_state.behind} new git {commit_word} available", 10, UI.Color.YELLOW)
+                
+                self.label(status_text, 11, status_color)
                 
                 self.menu(pointer, options, self.settings.home_screen_color)
                 
@@ -1036,11 +1145,32 @@ class UI:
                         pointer %= len(options)
                         break
                     elif key in ["ENTER", " "]:
-                        if self.login_register_form_view(list(options.values())[pointer]):
-                            self.home_view()
-                        elif "Register" in list(options.keys())[pointer]:
-                            error = "your registration was rejected"
+                        selected_label = list(options.keys())[pointer]
+                        selected_action = list(options.values())[pointer]
+                        
+                        if selected_action == "update":
+                            success, message = self.pull_updates()
+                            if success:
+                                restart_requested = True
+                                break
+                            status_text = message
+                            status_color = UI.Color.RED
+                            update_state = self.git_update_state()
+                        else:
+                            login_result = self.login_register_form_view(selected_action)
+                            if login_result:
+                                self.home_view()
+                                status_text = ""
+                                update_state = self.git_update_state()
+                            elif login_result is False and selected_label == "Register":
+                                status_text = "your registration was rejected"
+                                status_color = UI.Color.RED
                         break
+                if restart_requested:
+                    break
+        
+        if restart_requested:
+            self.restart_application()
     
     
     
