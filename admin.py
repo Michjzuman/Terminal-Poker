@@ -60,7 +60,11 @@ def admin_panel_login_view(ui):
                         break
                     
                     if result["ok"]:
-                        return text_inputs["Server Host"], text_inputs["Admin Password"]
+                        admin_panel_menu_view(ui,
+                            host,
+                            text_inputs["Admin Password"]
+                        )
+                        return
                     else:
                         error = "wrong password"
                         break
@@ -142,7 +146,16 @@ def admin_panel_register_requests_view(ui, host, password):
                     break
                 elif key in ["ENTER", " "]:
                     
-                    status, data = play.post_json(host, "/admin-approve-register-requests", {"username": requests[pointer_y], "password": password})
+                    status, data = play.post_json(
+                        host, [
+                            "/admin-reject-register-requests",
+                            "/admin-approve-register-requests"
+                        ][pointer_x],
+                        {
+                            "username": requests[pointer_y],
+                            "password": password
+                        }
+                    )
 
                     break
 
@@ -150,7 +163,7 @@ def admin_panel_menu_view(ui, host, password):
     ui.note = "↑/↓: Move • ENTER/SPACE: Select • Q: Quit"
     pointer = 0
     options = {
-        "View Register Requests": admin_panel_register_requests_view,
+        "View Registration Requests": admin_panel_register_requests_view,
         "More Options To Come...": None,
     }
     
@@ -160,7 +173,10 @@ def admin_panel_menu_view(ui, host, password):
     
             try:
                 status, data = play.get_json(host, "/register-requests")
-                amount = len(data["register-requests"])
+                if "register-requests" in list(data.keys()):
+                    amount = len(data["register-requests"])
+                else:
+                    amount = 0
             
             except TypeError:
                 amount = 0
@@ -194,10 +210,7 @@ def run():
     try:
         ui = play.UI()
         
-        host, password = "http://localhost:6767", "hello"
-        #host, password = admin_panel_login_view(ui)
-        
-        admin_panel_register_requests_view(ui, host, password)
+        admin_panel_login_view(ui)
         
     
     except KeyboardInterrupt:

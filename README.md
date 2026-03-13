@@ -28,8 +28,6 @@
 
 # How to run the game
 
-**Linux/MacOS:**
-
 ```bash
 # download the source code
 git clone https://github.com/Michjzuman/Terminal-Poker.git
@@ -38,5 +36,10 @@ git clone https://github.com/Michjzuman/Terminal-Poker.git
 cd Terminal-Poker
 
 # run play.py
-python3 play.py
+
+    # Linux/MacOS:
+    python3 play.py
+
+    # Windows:
+    python play.py
 ```

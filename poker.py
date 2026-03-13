@@ -12,6 +12,9 @@
 from enum import Enum
 from dataclasses import dataclass
 import random
+import platform
+
+IS_MACOS = platform.system() == "Darwin"
 
 class Rank(Enum):
     TWO = "2"
@@ -78,18 +81,78 @@ class Suit(Enum):
         return self.symbol
 
 class Card:
+    class DesignOption(Enum):
+        OLD_DESIGN = "old"
+        BORING_DESIGN = "boring"
+        ROUND_DESIGN = "round"
+        THICK_DESIGN = "thick"
+        ROYAL_DESIGN = "royal"
+        DASHED_DESIGN = "dashed"
+        FANCY_DESIGN = "fancy"
+
     def __init__(self, rank: Rank, suit: Suit):
         self.rank: Rank = rank
         self.suit: Suit = suit
     
-    def ascii(self, *,
-            old_design: bool = False,
-            round_design: bool = False,
-            thick_design: bool = False,
-            royal_design: bool = False,
-            dashed_design: bool = False,
-            fancy_design: bool = False
-        ):
+    def apply_design_option(text: list[str], design_option: DesignOption):
+        if design_option == Card.DesignOption.OLD_DESIGN:
+            updated_design = []
+            for line in text:
+                updated_design.append(line
+                    .replace("┌───────┐", "+-------+")
+                    .replace("│", "|")
+                    .replace("└───────┘", "+-------+")
+                )
+            return updated_design
+        elif design_option == Card.DesignOption.ROUND_DESIGN:
+            updated_design = []
+            for line in text:
+                updated_design.append(line
+                    .replace("┌", "╭")
+                    .replace("└", "╰")
+                    .replace("┐", "╮")
+                    .replace("┘", "╯")
+                )
+            return updated_design
+        elif design_option == Card.DesignOption.THICK_DESIGN:
+            updated_design = []
+            for line in text:
+                updated_design.append(line
+                    .replace("┌───────┐", "╔═══════╗")
+                    .replace("│", "║")
+                    .replace("└───────┘", "╚═══════╝")
+                )
+            return updated_design
+        elif design_option == Card.DesignOption.ROYAL_DESIGN:
+            updated_design = []
+            for line in text:
+                updated_design.append(line
+                    .replace("┌───────┐", "╔┄┄┄┄┄┄┄╗")
+                    .replace("│", "┊")
+                    .replace("└───────┘", "╚┄┄┄┄┄┄┄╝")
+                )
+            return updated_design
+        elif design_option == Card.DesignOption.DASHED_DESIGN:
+            updated_design = []
+            for line in text:
+                updated_design.append(line
+                    .replace("┌───────┐", "╭┄┄┄┄┄┄┄╮")
+                    .replace("│", "┊")
+                    .replace("└───────┘", "╰┄┄┄┄┄┄┄╯")
+                )
+            return updated_design
+        elif design_option == Card.DesignOption.FANCY_DESIGN:
+            updated_design = []
+            for line in text:
+                updated_design.append(line
+                    .replace("┌───────┐", "╔ • • • ╗")
+                    .replace("│", "•")
+                    .replace("└───────┘", "╚ • • • ╝")
+                )
+            return updated_design
+        return text
+
+    def ascii(self, design_option: DesignOption = DesignOption.ROUND_DESIGN):
         
         if self.rank == Rank.KING:
             design = [
@@ -151,61 +214,7 @@ class Card:
                 f" {' ' if len(self.rank.value) == 1 else ''} {self.rank.value} {self.suit.symbol}   "
             ]
         
-        if old_design:
-            updated_design = []
-            for line in design:
-                updated_design.append(line
-                    .replace("┌───────┐", "+-------+")
-                    .replace("│", "|")
-                    .replace("└───────┘", "+-------+")
-                )
-            design = updated_design
-        elif round_design:
-            updated_design = []
-            for line in design:
-                updated_design.append(line
-                    .replace("┌", "╭")
-                    .replace("└", "╰")
-                    .replace("┐", "╮")
-                    .replace("┘", "╯")
-                )
-            design = updated_design
-        elif thick_design:
-            updated_design = []
-            for line in design:
-                updated_design.append(line
-                    .replace("┌───────┐", "╔═══════╗")
-                    .replace("│", "║")
-                    .replace("└───────┘", "╚═══════╝")
-                )
-            design = updated_design
-        elif royal_design:
-            updated_design = []
-            for line in design:
-                updated_design.append(line
-                    .replace("┌───────┐", "╔┄┄┄┄┄┄┄╗")
-                    .replace("│", "┊")
-                    .replace("└───────┘", "╚┄┄┄┄┄┄┄╝")
-                )
-            design = updated_design
-        elif dashed_design:
-            updated_design = []
-            for line in design:
-                updated_design.append(line
-                    .replace("┌───────┐", "╭┄┄┄┄┄┄┄╮")
-                    .replace("│", "┊")
-                    .replace("└───────┘", "╰┄┄┄┄┄┄┄╯")
-                )
-            design = updated_design
-        elif fancy_design:
-            updated_design = []
-            for line in design:
-                updated_design.append(line
-                    .replace("┌───────┐", "╔ • • • ╗")
-                    .replace("│", "•")
-                    .replace("└───────┘", "╚ • • • ╝")
-                )
-            design = updated_design
+        design = Card.apply_design_option(design, design_option)
         
         result = design[:1]
         
@@ -218,9 +227,20 @@ class Card:
         return result
     
     class Back:
-        def ascii():
+        class DesignOption(Enum):
+            A = "A"
+            B = "B"
+            C = "C"
+            SS = "67"
+            HACKER = "hacker"
+            if IS_MACOS:
+                APPLE = "apple"
+        
+        def ascii(back_design_option: DesignOption = DesignOption.A, design_option = None):
             GRAY = "\033[90m"
-            return [
+            GREEN = "\033[32m"
+            
+            design = [
                 f"┌───────┐",
                 f"│ {GRAY}><><>\033[0m │",
                 f"│ {GRAY}<><><\033[0m │",
@@ -230,6 +250,63 @@ class Card:
                 f"└───────┘",
                 f"         "
             ]
+            if back_design_option == Card.Back.DesignOption.B:
+                design = [
+                    f"┌───────┐",
+                    f"│ {GRAY}~ ~ ~\033[0m │",
+                    f"│ {GRAY}~ ~ ~\033[0m │",
+                    f"│ {GRAY}~ ~ ~\033[0m │",
+                    f"│ {GRAY}~ ~ ~\033[0m │",
+                    f"│ {GRAY}~ ~ ~\033[0m │",
+                    f"└───────┘",
+                    f"         "
+                ]
+            elif back_design_option == Card.Back.DesignOption.SS:
+                design = [
+                    f"┌───────┐",
+                    f"│ {GRAY}.....\033[0m │",
+                    f"│ {GRAY}.\033[0m6{GRAY}...\033[0m │",
+                    f"│ {GRAY}.....\033[0m │",
+                    f"│ {GRAY}...\033[0m7{GRAY}.\033[0m │",
+                    f"│ {GRAY}.....\033[0m │",
+                    f"└───────┘",
+                    f"         "
+                ]
+            elif back_design_option == Card.Back.DesignOption.HACKER:
+                design = [
+                    f"┌───────┐",
+                    f"│ {GREEN}10011\033[0m │",
+                    f"│ {GREEN}01011\033[0m │",
+                    f"│ {GREEN}10011\033[0m │",
+                    f"│ {GREEN}10100\033[0m │",
+                    f"│ {GREEN}10101\033[0m │",
+                    f"└───────┘",
+                    f"         "
+                ]
+            elif back_design_option == Card.Back.DesignOption.C:
+                design = [
+                    f"┌───────┐",
+                    f"│ {GRAY}/\/\/ \033[0m│",
+                    f"│ {GRAY}\/\/\ \033[0m│",
+                    f"│ {GRAY}/\/\/ \033[0m│",
+                    f"│ {GRAY}\/\/\ \033[0m│",
+                    f"│ {GRAY}/\/\/ \033[0m│",
+                    f"└───────┘",
+                    f"         "
+                ]
+            elif IS_MACOS and back_design_option == Card.Back.DesignOption.APPLE:
+                design = [
+                    f"┌───────┐",
+                    f"│{GRAY} ~ ~ ~ \033[0m│",
+                    f"│{GRAY} ~ ~ ~ \033[0m│",
+                    f"│{GRAY} ~ \033[0m{GRAY} ~ \033[0m│",
+                    f"│{GRAY} ~ ~ ~ \033[0m│",
+                    f"│{GRAY} ~ ~ ~ \033[0m│",
+                    f"└───────┘",
+                    f"         "
+                ]
+            
+            return Card.apply_design_option(design, design_option)
 
 def print_cards_in_line(*cards: Card, spacer = "   ", print_it = True, **kwargs):
     if cards:

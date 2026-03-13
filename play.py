@@ -185,6 +185,29 @@ def read_key():
 
     return "OTHER"
 
+class Settings:
+    def __init__(self):
+        self.card_design: poker.Card.DesignOption = (
+            poker.Card.DesignOption.ROUND_DESIGN
+        )
+        self.card_back_design: poker.Card.Back.DesignOption = (
+            poker.Card.Back.DesignOption.A
+        )
+        self.home_screen_color: "UI.Color" = UI.Color.YELLOW
+        
+        file = read_json_file(".poker-settings.json")
+        if file != False:
+            self.card_design = poker.Card.DesignOption(file["card_design"])
+            self.card_back_design = poker.Card.Back.DesignOption(file["card_back_design"])
+            self.home_screen_color = UI.Color(file["home_screen_color"])
+    
+    def save(self):
+        write_json_file(".poker-settings.json", {
+            "card_design": self.card_design.value,
+            "card_back_design": self.card_back_design.value,
+            "home_screen_color": self.home_screen_color.value
+        })
+
 class UI:
     def __init__(self):
         self.w = 78
@@ -197,6 +220,8 @@ class UI:
             "Local Server": "http://127.0.0.1:6767"
         }
         self.current_server: int = 0
+        
+        self.settings: Settings = Settings()
         
         self.username: str = "micha"
         self.password: str = "geheim"
@@ -251,6 +276,20 @@ class UI:
         INVERT = "\033[7m"
         HIDDEN = "\033[8m"
         STRIKETHROUGH = "\033[9m"
+        
+        @property
+        def normal(self) -> bool:
+            if self in [
+                UI.Color.RED,
+                UI.Color.GREEN,
+                UI.Color.YELLOW,
+                UI.Color.BLUE,
+                UI.Color.MAGENTA,
+                UI.Color.CYAN,
+                UI.Color.WHITE
+            ]:
+                return True
+            return False
 
     def true_len(text: str, return_diff: bool = False):
         minus = 0
@@ -410,7 +449,7 @@ class UI:
     def text_input(self, text: str, pointer: bool, y: int = 10, label: str = "", hidden: bool = False):
         w = 30
         content = (
-            "*" * len(text[:(w - 5)])
+            "•" * len(text[:(w - 5)])
             if hidden else
             (
                 text[-(w - 5):]
@@ -450,7 +489,7 @@ class UI:
             ))
             
             logo_y = 12 - max(0, frame - 20) * 2
-            self.poker_logo(round(self.w / 2) - 24, logo_y, UI.Color.YELLOW)
+            self.poker_logo(round(self.w / 2) - 24, logo_y, self.settings.home_screen_color)
 
             glitch(self.text, 100 - frame * 10)
             
@@ -592,15 +631,217 @@ class UI:
     def statistics_view(self):
         pass
     
+    def settings_window_size_view(self):
+        self.note = "↑/↓/←/→: Resize • Q: Quit"
+        
+        with cbreak_stdin():
+            while True:
+                self.reset_text()
+                
+                self.back_button()
+                
+                self.label("Set Window Size", 4)
+                
+                self.draw()
+                
+                while True:
+                    key = read_key()
+                    if key in (None, "q", "Q"):
+                        exit()
+                    if key == "ESC":
+                        return
+                    elif key == "UP":
+                        self.h -= 1
+                        self.h = max(self.h, 26)
+                        break
+                    elif key == "DOWN":
+                        self.h += 1
+                        self.h = min(self.h, 54)
+                        break
+                    if key == "RIGHT":
+                        self.w += 1
+                        self.w = min(self.w, 200)
+                        break
+                    elif key == "LEFT":
+                        self.w -= 1
+                        self.w = max(self.w, 78)
+                        break
+    
+    def settings_card_designs_view(self, back = False):
+        self.note = "←/→: Move • Q: Quit"
+        
+        options = list(
+            poker.Card.Back.DesignOption
+            if back else
+            poker.Card.DesignOption
+        )
+        
+        pointer = options.index(
+            self.settings.card_back_design
+            if back else
+            self.settings.card_design
+        )
+        
+        with cbreak_stdin():
+            while True:
+                self.reset_text()
+                
+                self.back_button()
+                
+                self.label("Choose Your Card Design", 4)
+                
+                self.label(options[pointer].value + " design", 10, UI.Color.GREEN)
+                
+                self.draw_object([
+                    "╔═════════╗"
+                ], 4 + 10 * pointer, 16, UI.Color.GREEN)
+                
+                for i, option in enumerate(options):
+                    self.draw_object(
+                        (
+                            poker.Card.Back.ascii(option,
+                                self.settings.card_design
+                            )[:-1]
+                            if back else
+                            poker.Card(
+                                poker.Rank.EIGHT,
+                                poker.Suit.DIAMONDS
+                            ).ascii(option)[:-1]
+                        ),
+                        5 + 10 * i, 17
+                    )
+                    
+                self.draw_object([
+                    "╚═════════╝"
+                ], 4 + 10 * pointer, 24, UI.Color.GREEN)
+                
+                self.draw()
+                
+                while True:
+                    key = read_key()
+                    if key in (None, "q", "Q"):
+                        exit()
+                    elif key == "RIGHT":
+                        pointer += 1
+                        pointer %= len(options)
+                        break
+                    elif key == "LEFT":
+                        pointer -= 1
+                        pointer %= len(options)
+                        break
+                    elif key in ["ENTER", " ", "ESC"]:
+                        if back:
+                            self.settings.card_back_design = options[pointer]
+                        else:
+                            self.settings.card_design = options[pointer]
+                        return
+    
+    def settings_card_back_designs_view(self):
+        self.settings_card_designs_view(True)
+    
+    def settings_home_screen_color_view(self):
+        self.note = "←/→: Move • Q: Quit"
+        
+        options = [color for color in list(UI.Color) if color.normal]
+        
+        pointer = options.index(self.settings.home_screen_color)
+        
+        with cbreak_stdin():
+            while True:
+                self.reset_text()
+                
+                self.back_button()
+                
+                self.label("Choose Your Home Screen Color", 8, options[pointer])
+                
+                color_select_x = round(
+                    self.w / 2 -
+                    (len(options) * 10 - 4) / 2
+                )
+                
+                self.draw_object([
+                    "╔════════╗"
+                ], color_select_x - 2 + 10 * pointer, 16, UI.Color.GREEN)
+                
+                for i, option in enumerate(options):
+                    self.draw_object(
+                        [
+                            "██████",
+                            "██████",
+                            "██████"
+                        ],
+                        color_select_x + 10 * i, 17, option
+                    )
+                    
+                self.draw_object([
+                    "╚════════╝"
+                ], color_select_x - 2 + 10 * pointer, 20, UI.Color.GREEN)
+                
+                self.draw()
+                
+                while True:
+                    key = read_key()
+                    if key in (None, "q", "Q"):
+                        exit()
+                    elif key == "RIGHT":
+                        pointer += 1
+                        pointer %= len(options)
+                        break
+                    elif key == "LEFT":
+                        pointer -= 1
+                        pointer %= len(options)
+                        break
+                    elif key in ["ENTER", " ", "ESC"]:
+                        self.settings.home_screen_color = options[pointer]
+                        return
+    
     def settings_view(self):
-        pass
+        self.note = "↑/↓: Move • ENTER/SPACE: Select • Q: Quit"
+        pointer = 0
+        options = {
+            "Window Size": self.settings_window_size_view,
+            "Home Screen Color": self.settings_home_screen_color_view,
+            "Card Designs": self.settings_card_designs_view,
+            "Card Back Designs": self.settings_card_back_designs_view
+        }
+        
+        with cbreak_stdin():
+            while True:
+                self.reset_text()
+                
+                self.back_button()
+                
+                self.label("Settings", 4)
+                
+                self.menu(pointer, options, self.settings.home_screen_color, 8)
+                
+                self.draw()
+                
+                while True:
+                    key = read_key()
+                    if key in (None, "q", "Q"):
+                        exit()
+                    if key == "ESC":
+                        return
+                    elif key == "UP":
+                        pointer -= 1
+                        pointer %= len(options)
+                        break
+                    elif key == "DOWN":
+                        pointer += 1
+                        pointer %= len(options)
+                        break
+                    elif key in ["ENTER", " "]:
+                        list(options.values())[pointer]()
+                        self.settings.save()
+                        break
     
     def home_view(self):
         self.note = "↑/↓: Move • ENTER/SPACE: Select • Q: Quit"
         pointer = 0
         options = {
             "Join Table": self.join_table_view,
-            "Minigames": print,
+            "(Minigames)": print,
             "Settings": self.settings_view,
             "<-] Logout": None
         }
@@ -618,9 +859,9 @@ class UI:
                 if money is not None:
                     self.draw_object([f"{self.username} {UI.Color.GREEN.value}{money}*"], 2, 1)
                 
-                self.poker_logo(round(self.w / 2) - 24, 4, UI.Color.YELLOW)
+                self.poker_logo(round(self.w / 2) - 24, 4, self.settings.home_screen_color)
                 
-                self.menu(pointer, options, UI.Color.YELLOW)
+                self.menu(pointer, options, self.settings.home_screen_color)
                 
                 self.draw()
                 
@@ -654,19 +895,29 @@ class UI:
                 
                 if tick == 0:
                     try:
-                        status, data = get_json(self.current_host, "/money")
-                        money = data["players"]
+                        status, money_data = get_json(self.current_host, "/money")
+                        money = money_data["players"]
                     except TypeError:
                         money = {}
+                        
+                    try:
+                        status, rr_data = get_json(self.current_host, "/register-requests")
+                        registration_requests = rr_data["register-requests"]
+                    except TypeError:
+                        registration_requests = []
+                    
                     if self.username in list(money.keys()):
                         return True
+                    elif self.username in list(registration_requests):
+                        pass
+                    else:
+                        return False
                 
                 self.label("Waiting for server admin to accept your registration", 13)
                 
                 self.label(["     ", ".    ", ". .  ", ". . ."][tick], 15)
                 
                 self.draw()
-                print(money)
                 
                 tick += 1
                 tick %= 4
@@ -727,8 +978,8 @@ class UI:
                         if data["ok"]:
                             self.username = text_inputs["Username"]
                             self.password = text_inputs["Password"]
-                            self.wait_for_registration_approval_view()
-                            return True
+                            approved = self.wait_for_registration_approval_view()
+                            return approved
                         elif status == 0:
                             error = "could not connect to server"
                         else:
@@ -758,13 +1009,17 @@ class UI:
             "Register": False
         }
         
+        error = ""
+        
         with cbreak_stdin():
             while True:
                 self.reset_text()
                 
-                self.poker_logo(round(self.w / 2) - 24, 4, UI.Color.YELLOW)
+                self.poker_logo(round(self.w / 2) - 24, 4, self.settings.home_screen_color)
                 
-                self.menu(pointer, options, UI.Color.YELLOW)
+                self.label(error, 11, UI.Color.RED)
+                
+                self.menu(pointer, options, self.settings.home_screen_color)
                 
                 self.draw()
                 
@@ -783,14 +1038,19 @@ class UI:
                     elif key in ["ENTER", " "]:
                         if self.login_register_form_view(list(options.values())[pointer]):
                             self.home_view()
+                        elif "Register" in list(options.keys())[pointer]:
+                            error = "your registration was rejected"
                         break
     
     
     
     def run(self):
         try:
-            self.intro_view()
+            #self.intro_view()
             self.start_view()
+            
+            self.settings_card_designs_view(True)
+            
         except KeyboardInterrupt:
             exit()
 
