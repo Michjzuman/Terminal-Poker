@@ -8,8 +8,6 @@
 # Run this file to play the game.
 #
 
-# test commit
-
 
 from enum import Enum
 from dataclasses import dataclass
@@ -276,7 +274,6 @@ class UI:
         self.text: list[str] = []
         self.reset_text()
         self.fps = 10
-        self.note = ""
         self.servers = {
             "Local Server": "http://127.0.0.1:6767"
         }
@@ -420,10 +417,10 @@ class UI:
             [f"╚{'═' * self.w}╝"]
         )
 
-    def draw(self):
+    def draw(self, note):
         self.clear_shell()
         print("\n".join(self.text))
-        print(UI.Color.GRAY.value + self.note + UI.Color.RESET.value)
+        print(UI.Color.GRAY.value + note + UI.Color.RESET.value)
 
     @dataclass
     class Object:
@@ -571,8 +568,6 @@ class UI:
     
     
     def intro_view(self):
-        self.note = "Made by Michjzuman"
-        
         def glitch(text, prob: int):
             chars = ".-@#*|!?"
             for y, line in enumerate(text):
@@ -593,7 +588,7 @@ class UI:
 
             glitch(self.text, 100 - frame * 10)
             
-            self.draw()
+            self.draw("Made by Michjzuman")
             
             time.sleep(1 / self.fps)
             frame += 1
@@ -602,21 +597,12 @@ class UI:
                 break
     
     def table_view(self, id):
-        self.note = "↑/↓: Move • ENTER/SPACE: Select • Q: Quit"
         with cbreak_stdin():
             while True:
                 self.reset_text()
                 
                 try:
                     status, data = get_json(self.current_host, "/get_tables")
-                    tables = [
-                        f"""{
-                            UI.Color.STRIKETHROUGH.value if t['active'] else ''
-                        }Table {t['id'] + 1}     {
-                            '(playing)' if t['active'] else '(waiting)'
-                        }   ({t['players']}/8)"""
-                        for t in data["tables"]
-                    ]
                     for t in data["tables"]:
                         if t["id"] == id:
                             table = t
@@ -626,13 +612,17 @@ class UI:
                 # community cards
                 self.draw_object(poker.print_cards_in_line(
                     poker.Card.Back,
-                    poker.Card(poker.Rank.SEVEN, poker.Suit.HEARTS),
-                    poker.Card(poker.Rank.SEVEN, poker.Suit.HEARTS),
-                    poker.Card(poker.Rank.SEVEN, poker.Suit.HEARTS),
-                    poker.Card(poker.Rank.SEVEN, poker.Suit.HEARTS),
-                    poker.Card(poker.Rank.SEVEN, poker.Suit.HEARTS),
+                    *[
+                        poker.Card(
+                            poker.Rank(card["rank"]),
+                            poker.Suit(card["suit"])
+                        )
+                        for card in table["info"]["community_cards"]
+                    ],
                     print_it = False,
-                    spacer = " "
+                    spacer = " ",
+                    design_option = poker.Card.DesignOption(self.settings.card_design),
+                    back_design_option = poker.Card.Back.DesignOption(self.settings.card_back_design)
                 ), 5, 2, UI.Color.WHITE)
                 
                 # pool
@@ -643,7 +633,9 @@ class UI:
                 self.draw_object(poker.print_cards_in_line(
                     poker.Card(poker.Rank.KING, poker.Suit.HEARTS),
                     poker.Card(poker.Rank.JACK, poker.Suit.HEARTS),
-                    print_it = False
+                    print_it = False,
+                    design_option = poker.Card.DesignOption(self.settings.card_design),
+                    back_design_option = poker.Card.Back.DesignOption(self.settings.card_back_design)
                 ), 5, 16, UI.Color.WHITE)
                 
                 # players list
@@ -659,7 +651,9 @@ class UI:
                 self.draw_object("\n\n".join(players_list).split("\n"), 45, 16)
                 
                 
-                self.draw()
+                self.draw("↑/↓: Move • ENTER/SPACE: Select • Q: Quit")
+                
+                print(table)
                 
                 while True:
                     key = read_key()
@@ -670,8 +664,6 @@ class UI:
                         return
     
     def join_table_view(self):
-        self.note = "↑/↓: Move • ENTER/SPACE: Select • Q: Quit"
-        
         pointer = 0
         
         with cbreak_stdin():
@@ -697,7 +689,7 @@ class UI:
                 
                 self.menu(pointer, tables, UI.Color.GREEN, y = 10, w = 40)
                 
-                self.draw()
+                self.draw("↑/↓: Move • ENTER/SPACE: Select • Q: Quit")
                 
                 while True:
                     key = read_key()
@@ -712,6 +704,13 @@ class UI:
                         pointer %= len(tables)
                         break
                     elif key in [" ", "ENTER"]:
+                        status, data = post_json(self.current_host, "/join_table",
+                            {
+                                "username": self.username,
+                                "password": self.password,
+                                "table_id": data["tables"][pointer]["id"]
+                            }
+                        )
                         self.table_view(data["tables"][pointer]["id"])
                         break
                     elif key == "ESC":
@@ -732,8 +731,6 @@ class UI:
         pass
     
     def settings_window_size_view(self):
-        self.note = "↑/↓/←/→: Resize • Q: Quit"
-        
         with cbreak_stdin():
             while True:
                 self.reset_text()
@@ -742,7 +739,7 @@ class UI:
                 
                 self.label("Set Window Size", 4)
                 
-                self.draw()
+                self.draw("↑/↓/←/→: Resize • Q: Quit")
                 
                 while True:
                     key = read_key()
@@ -768,8 +765,6 @@ class UI:
                         break
     
     def settings_card_designs_view(self, back = False):
-        self.note = "←/→: Move • Q: Quit"
-        
         options = list(
             poker.Card.Back.DesignOption
             if back else
@@ -788,7 +783,7 @@ class UI:
                 
                 self.back_button()
                 
-                self.label("Choose Your Card Design", 4)
+                self.label(f"Choose Your Card{' Back' if back else ''} Design", 4)
                 
                 self.label(options[pointer].value + " design", 10, UI.Color.GREEN)
                 
@@ -815,7 +810,7 @@ class UI:
                     "╚═════════╝"
                 ], 4 + 10 * pointer, 24, UI.Color.GREEN)
                 
-                self.draw()
+                self.draw("←/→: Move • Q: Quit")
                 
                 while True:
                     key = read_key()
@@ -840,8 +835,6 @@ class UI:
         self.settings_card_designs_view(True)
     
     def settings_home_screen_color_view(self):
-        self.note = "←/→: Move • Q: Quit"
-        
         options = [color for color in list(UI.Color) if color.normal]
         
         pointer = options.index(self.settings.home_screen_color)
@@ -877,7 +870,7 @@ class UI:
                     "╚════════╝"
                 ], color_select_x - 2 + 10 * pointer, 20, UI.Color.GREEN)
                 
-                self.draw()
+                self.draw("↑/↓: Move • Q: Quit")
                 
                 while True:
                     key = read_key()
@@ -896,10 +889,9 @@ class UI:
                         return
     
     def settings_view(self):
-        self.note = "↑/↓: Move • ENTER/SPACE: Select • Q: Quit"
         pointer = 0
         options = {
-            "Window Size": self.settings_window_size_view,
+            #"Window Size": self.settings_window_size_view,
             "Home Screen Color": self.settings_home_screen_color_view,
             "Card Designs": self.settings_card_designs_view,
             "Card Back Designs": self.settings_card_back_designs_view
@@ -915,7 +907,7 @@ class UI:
                 
                 self.menu(pointer, options, self.settings.home_screen_color, 8)
                 
-                self.draw()
+                self.draw("↑/↓: Move • ENTER/SPACE: Select • Q: Quit")
                 
                 while True:
                     key = read_key()
@@ -937,7 +929,6 @@ class UI:
                         break
     
     def home_view(self):
-        self.note = "↑/↓: Move • ENTER/SPACE: Select • Q: Quit"
         pointer = 0
         options = {
             "Join Table": self.join_table_view,
@@ -963,7 +954,7 @@ class UI:
                 
                 self.menu(pointer, options, self.settings.home_screen_color)
                 
-                self.draw()
+                self.draw("↑/↓: Move • ENTER/SPACE: Select • Q: Quit")
                 
                 while True:
                     key = read_key()
@@ -984,8 +975,6 @@ class UI:
                         break
     
     def wait_for_registration_approval_view(self):
-        self.note = "^C: Quit"
-        
         money = None
         tick = 0
         
@@ -1017,7 +1006,7 @@ class UI:
                 
                 self.label(["     ", ".    ", ". .  ", ". . ."][tick], 15)
                 
-                self.draw()
+                self.draw("^C: Quit")
                 
                 tick += 1
                 tick %= 4
@@ -1025,8 +1014,6 @@ class UI:
                 time.sleep(1)
     
     def login_register_form_view(self, login):
-        self.note = "↑/↓: Move • ENTER: Confirm • ^C: Quit"
-        
         pointer = 0
         text_inputs = {
             "Username": "",
@@ -1053,7 +1040,7 @@ class UI:
                 
                 self.menu(pointer - len(text_inputs), ["Done"], UI.Color.CYAN, 21 if login else 23)
                 
-                self.draw()
+                self.draw("↑/↓: Move • ENTER: Confirm • ^C: Quit")
                 
                 while True:
                     key = read_key()
@@ -1102,7 +1089,6 @@ class UI:
                         break
     
     def start_view(self):
-        self.note = "↑/↓: Move • ENTER/SPACE: Select • Q: Quit"
         pointer = 0
         update_state = self.git_update_state()
         restart_requested = False
@@ -1132,7 +1118,7 @@ class UI:
                 
                 self.menu(pointer, options, self.settings.home_screen_color)
                 
-                self.draw()
+                self.draw("↑/↓: Move • ENTER/SPACE: Select • Q: Quit")
                 
                 while True:
                     key = read_key()
@@ -1178,10 +1164,10 @@ class UI:
     
     def run(self):
         try:
-            #self.intro_view()
+            self.intro_view()
             self.start_view()
             
-            self.settings_card_designs_view(True)
+            #self.table_view(0)
             
         except KeyboardInterrupt:
             exit()
@@ -1191,4 +1177,5 @@ class UI:
 if __name__ == "__main__":
     
     ui = UI()
+    
     ui.run()

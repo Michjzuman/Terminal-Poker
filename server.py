@@ -110,9 +110,8 @@ class Table:
                     if self.game.play_move():
                         print("moved")
                         break
+                    print("not moved")
                     await asyncio.sleep(0.1)
-                
-                self.game.your_turn()
                 
                 self.info["turn"] = self.game.turn
                 
@@ -297,13 +296,17 @@ def do_move(body: MoveBody):
     user = next((u for u in users if u.name == body.username), None)
     
     try:
-        move = poker.Move(body.move_type, body.amount)
+        move = poker.Move(
+            poker.MoveType(body.move_type),
+            body.amount
+        )
         user.move = move
+        
         print("move found!")
+        
     except ValueError:
         return {"ok": False}
 
-    table.players.append(user)
     return {"ok": True}
 
 # === === === === === === === ===

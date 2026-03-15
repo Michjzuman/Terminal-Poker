@@ -152,7 +152,7 @@ class Card:
             return updated_design
         return text
 
-    def ascii(self, design_option: DesignOption = DesignOption.ROUND_DESIGN):
+    def ascii(self, design_option: DesignOption = DesignOption.ROUND_DESIGN, **kwargs):
         
         if self.rank == Rank.KING:
             design = [
@@ -231,6 +231,7 @@ class Card:
             A = "A"
             B = "B"
             C = "C"
+            D = "D"
             SS = "67"
             HACKER = "hacker"
             if IS_MACOS:
@@ -239,6 +240,7 @@ class Card:
         def ascii(back_design_option: DesignOption = DesignOption.A, design_option = None):
             GRAY = "\033[90m"
             GREEN = "\033[32m"
+            RESET = "\033[0m"
             
             design = [
                 f"┌───────┐",
@@ -274,12 +276,11 @@ class Card:
                 ]
             elif back_design_option == Card.Back.DesignOption.HACKER:
                 design = [
-                    f"┌───────┐",
-                    f"│ {GREEN}10011\033[0m │",
-                    f"│ {GREEN}01011\033[0m │",
-                    f"│ {GREEN}10011\033[0m │",
-                    f"│ {GREEN}10100\033[0m │",
-                    f"│ {GREEN}10101\033[0m │",
+                    f"┌───────┐"
+                ] + [
+                    f"│ {''.join([f'{GREEN if random.random() < 0.1 else GRAY}{random.randint(0, 1)}{RESET}' for _ in range(5)])} │"
+                    for _ in range(5)
+                ] + [
                     f"└───────┘",
                     f"         "
                 ]
@@ -302,6 +303,17 @@ class Card:
                     f"│{GRAY} ~ \033[0m{GRAY} ~ \033[0m│",
                     f"│{GRAY} ~ ~ ~ \033[0m│",
                     f"│{GRAY} ~ ~ ~ \033[0m│",
+                    f"└───────┘",
+                    f"         "
+                ]
+            elif back_design_option == Card.Back.DesignOption.D:
+                design = [
+                    f"┌───────┐",
+                    f"│ {GRAY}#####{RESET} │",
+                    f"│ {GRAY}#####{RESET} │",
+                    f"│ {GRAY}#####{RESET} │",
+                    f"│ {GRAY}#####{RESET} │",
+                    f"│ {GRAY}#####{RESET} │",
                     f"└───────┘",
                     f"         "
                 ]
@@ -382,7 +394,7 @@ class MoveType(Enum):
 @dataclass
 class Move:
     type: MoveType
-    amount: int = None
+    amount: int = 0
 
 class Player:
     def __init__(self, name: str, money: int):
@@ -395,12 +407,43 @@ class Player:
         self.move: Move | None = None
     
     def do_move(self, move: Move):
-
-        if isinstance(move.type, MoveType.CHECK):
+        if move.type == MoveType.CHECK:
+            self.game.logs.append(f"{self.name} checked")
             return True
         
-        self.game.bet = self.bet
-        self.game.history.append(Move(move_type, move.amount))
+        if move.type == MoveType.FOLD:
+            self.game.logs.append(f"{self.name} folded")
+            self.is_in = False
+            return True
+        
+        """
+        diff = {
+            MoveType.CALL: self.game.bet - self.bet,
+            MoveType.BET: move.amount,
+            MoveType.RAISE: self.game.bet - self.bet + move.amount,
+            MoveType.RERAISE: self.game.bet - self.bet + move.amount
+        }[move.type]
+        """
+        
+        diff = self.game.bet - self.bet + move.amount
+        
+        log = {
+            MoveType.CALL: f"{self.name} called",
+            MoveType.BET: f"{self.name} bet {move.amount}*",
+            MoveType.RAISE: f"{self.name} raised by {move.amount}*",
+            MoveType.RERAISE: f"{self.name} re-raised by {move.amount}*"
+        }[move.type]
+        
+        
+        if self.money >= diff:
+            self.bet += diff
+            self.money -= diff
+            
+            self.game.logs.append(log)
+            
+            return True
+        else:
+            return False
     
     @property
     def possible_moves(self) -> list[MoveType]:
@@ -444,6 +487,7 @@ class Game:
         self.finished: bool = False
         self.history: list[Move] = []
         self.turn: int = 0
+        self.logs: list[str] = []
         
         self.players: list[Player] = list(players)
         for player in self.players:
@@ -451,8 +495,11 @@ class Game:
         
         self.phase: Phase = Phase.PREFLOP
         self.agressor: int = 0
-        self.bet: int = 0
         self.pool: int = pool
+    
+    @property
+    def bet(self) -> int:
+        return max([player.bet for player in self.players])
     
     def deal_cards(self):
         random.shuffle(self.stack)
@@ -473,13 +520,15 @@ class Game:
                 self.pool += player.bet
                 player.bet = 0
             
-            self.bet = 0
             self.last_full_raise = self.big_blind
             self.raises_in_round = 0
 
     def your_turn(self):
-        self.turn += 1
-        self.turn %= len(self.players)
+        moved = False
+        while not moved or not self.players[self.turn].is_in:
+            self.turn += 1
+            self.turn %= len(self.players)
+            moved = True
 
     def play_move(self) -> bool:
         player = self.players[self.turn]
@@ -488,52 +537,17 @@ class Game:
             return False
         
         try:
-            player.do_move(move)
-            player.move = None
-            return True
+            if player.do_move(move):
+                self.history.append(move)
+                player.move = None
+                self.your_turn()
+                return True
+            else:
+                return False
         except ValueError:
             return False
 
 
-if __name__ == "__main__":
-    
-    def test_run():
-        import os
-        import time
-        import play
-        
-        game = Game(
-            Player("Hans", 67),
-            Player("Fritz", 41)
-        )
-        
-        game.deal_cards()
-        
-        while not game.finished:
-            os.system("clear; clear")
-            
-            print(f"\033[32m{game.pool}*\033[0m")
-            print_cards_in_line(*game.community_cards)
-            
-            print()
-            
-            print(f"{game.players[0].name} \033[32m{game.players[0].money}*\033[0m")
-            print_cards_in_line(*game.players[0].cards)
-            
-            print()
-            
-            print(f"{game.players[1].name} \033[32m{game.players[1].money}*\033[0m")
-            print_cards_in_line(*game.players[1].cards)
-            
-            game.players[0].do_move(Move(MoveType.BET, 10))
-            
-            game.next_phase()
-            
-            time.sleep(1)
 
-    move_type = "Check"
-    
-    try:
-        print(MoveType(move_type))
-    except ValueError:
-        print("nope")
+if __name__ == "__main__":
+    print("Hello World!")

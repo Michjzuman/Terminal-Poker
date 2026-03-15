@@ -12,7 +12,6 @@
 import play
 
 def admin_panel_login_view(ui):
-    ui.note = "↑/↓: Move • ENTER: Confirm • ^C: Quit"
     pointer = 0
     error = ""
     text_inputs = {
@@ -36,7 +35,7 @@ def admin_panel_login_view(ui):
                     
             ui.menu(pointer - len(text_inputs), ["Done"], play.UI.Color.RED, 23)
             
-            ui.draw()
+            ui.draw("↑/↓: Move • ENTER: Confirm • ^C: Quit")
             
             
             while True:
@@ -83,7 +82,6 @@ def admin_panel_login_view(ui):
                     break
 
 def admin_panel_register_requests_view(ui, host, password):
-    ui.note = "↑/↓/←/→: Move • ENTER/SPACE: Select • R: Reload • Q: Quit"
     pointer_x = 0
     pointer_y = 0
 
@@ -108,17 +106,25 @@ def admin_panel_register_requests_view(ui, host, password):
             if len(requests) > 3 and pointer_y > 1:
                 ui.label(". . .", 7)
             
-            show = min(max(0, pointer_y - 1), len(requests) - 3)
+            show = min(max(0, pointer_y - 1), len(requests) - min(3, len(requests)))
             
             ui.selector(
-                pointer_x, (0 if pointer_y == 0 else (2 if pointer_y == len(requests) - 1 else 1)),
+                pointer_x, (
+                    0
+                    if pointer_y == 0 else (
+                        2
+                        if pointer_y == len(requests) - 1
+                        and len(requests) > 2 else
+                        1
+                    )
+                ),
                 requests[show:show+3], 8
             )
             
             if len(requests) > 3 and pointer_y < len(requests) - 2:
                 ui.label(". . .", 23)
             
-            ui.draw()
+            ui.draw("↑/↓/←/→: Move • ENTER/SPACE: Select • R: Reload • Q: Quit")
             
             while True:
                 key = play.read_key()
@@ -160,7 +166,6 @@ def admin_panel_register_requests_view(ui, host, password):
                     break
 
 def admin_panel_menu_view(ui, host, password):
-    ui.note = "↑/↓: Move • ENTER/SPACE: Select • Q: Quit"
     pointer = 0
     options = {
         "View Registration Requests": admin_panel_register_requests_view,
@@ -186,7 +191,7 @@ def admin_panel_menu_view(ui, host, password):
             ui.menu(pointer, [f"{list(options.keys())[0]} ({amount})"], play.UI.Color.RED, 7, 40)
             ui.menu(pointer - 1, list(options.keys())[1:], play.UI.Color.RED, 10, 40)
             
-            ui.draw()
+            ui.draw("↑/↓: Move • ENTER/SPACE: Select • Q: Quit")
             
             while True:
                 key = play.read_key()
