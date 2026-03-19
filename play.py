@@ -601,54 +601,61 @@ class UI:
             while True:
                 self.reset_text()
                 
+                table = {}
+                
                 try:
                     status, data = get_json(self.current_host, "/get_tables")
-                    for t in data["tables"]:
-                        if t["id"] == id:
-                            table = t
+                    if data["ok"]:
+                        for t in data["tables"]:
+                            if t["id"] == id and t["active"]:
+                                table = t
                 except TypeError:
                     return
                 
-                # community cards
-                self.draw_object(poker.print_cards_in_line(
-                    poker.Card.Back,
-                    *[
-                        poker.Card(
-                            poker.Rank(card["rank"]),
-                            poker.Suit(card["suit"])
+                if table != {}:
+                
+                    # community cards
+                    self.draw_object(poker.print_cards_in_line(
+                        poker.Card.Back,
+                        *[
+                            poker.Card(
+                                poker.Rank(card["rank"]),
+                                poker.Suit(card["suit"])
+                            )
+                            for card in table["info"]["community_cards"]
+                        ],
+                        print_it = False,
+                        spacer = " ",
+                        design_option = poker.Card.DesignOption(self.settings.card_design),
+                        back_design_option = poker.Card.Back.DesignOption(self.settings.card_back_design)
+                    ), 5, 2, UI.Color.WHITE)
+                    
+                    # pool
+                    pool_value = table['info']['pool']
+                    if pool_value > 0:
+                        pool = f"{pool_value}*"
+                        self.draw_object([pool], 71 - round(len(pool) / 2), 5, UI.Color.GREEN)
+                    
+                    # my cards
+                    self.draw_object(poker.print_cards_in_line(
+                        poker.Card(poker.Rank.KING, poker.Suit.HEARTS),
+                        poker.Card(poker.Rank.JACK, poker.Suit.HEARTS),
+                        print_it = False,
+                        design_option = poker.Card.DesignOption(self.settings.card_design),
+                        back_design_option = poker.Card.Back.DesignOption(self.settings.card_back_design)
+                    ), 5, 16, UI.Color.WHITE)
+                    
+                    # players list
+                    players_list = []
+                    for i, player in enumerate(table["info"]["players"]):
+                        arrow = ">" if i == table["info"]["turn"] else " "
+                        green = UI.Color.GREEN.value if player["is_in"] else ""
+                        gray = "" if player["is_in"] else UI.Color.GRAY.value + UI.Color.STRIKETHROUGH.value
+                        reset = UI.Color.RESET.value if player["is_in"] else UI.Color.GRAY.value
+                        players_list.append(
+                            f"{gray}{arrow} [{green}10*{reset}] {player['name']} {green}{player['money']}*"
                         )
-                        for card in table["info"]["community_cards"]
-                    ],
-                    print_it = False,
-                    spacer = " ",
-                    design_option = poker.Card.DesignOption(self.settings.card_design),
-                    back_design_option = poker.Card.Back.DesignOption(self.settings.card_back_design)
-                ), 5, 2, UI.Color.WHITE)
-                
-                # pool
-                pool = "67*"
-                self.draw_object([pool], 71 - round(len(pool) / 2), 5, UI.Color.GREEN)
-                
-                # my cards
-                self.draw_object(poker.print_cards_in_line(
-                    poker.Card(poker.Rank.KING, poker.Suit.HEARTS),
-                    poker.Card(poker.Rank.JACK, poker.Suit.HEARTS),
-                    print_it = False,
-                    design_option = poker.Card.DesignOption(self.settings.card_design),
-                    back_design_option = poker.Card.Back.DesignOption(self.settings.card_back_design)
-                ), 5, 16, UI.Color.WHITE)
-                
-                # players list
-                players_list = []
-                for i, player in enumerate(table["info"]["players"]):
-                    arrow = ">" if i == table["info"]["turn"] else " "
-                    green = UI.Color.GREEN.value if player["is_in"] else ""
-                    gray = "" if player["is_in"] else UI.Color.GRAY.value + UI.Color.STRIKETHROUGH.value
-                    reset = UI.Color.RESET.value if player["is_in"] else UI.Color.GRAY.value
-                    players_list.append(
-                        f"{gray}{arrow} [{green}10*{reset}] {player['name']} {green}{player['money']}*"
-                    )
-                self.draw_object("\n\n".join(players_list).split("\n"), 45, 16)
+                    self.draw_object("\n\n".join(players_list).split("\n"), 45, 16)
                 
                 
                 self.draw("↑/↓: Move • ENTER/SPACE: Select • Q: Quit")
@@ -657,8 +664,11 @@ class UI:
                 
                 while True:
                     key = read_key()
-                    if key in (None, "q", "Q"):
+                    if key in ("q", "Q"):
                         exit()
+                    
+                    if key in ("r", "R"):
+                        break
                     
                     elif key == "ESC":
                         return
@@ -1166,9 +1176,7 @@ class UI:
         try:
             self.intro_view()
             self.start_view()
-            
-            #self.table_view(0)
-            
+        
         except KeyboardInterrupt:
             exit()
 
@@ -1177,5 +1185,11 @@ class UI:
 if __name__ == "__main__":
     
     ui = UI()
+    
+    ############################
+    ui.table_view(0)
+    exit()
+    ############################
+    
     
     ui.run()

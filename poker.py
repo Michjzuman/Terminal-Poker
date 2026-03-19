@@ -338,12 +338,12 @@ def print_cards_in_line(*cards: Card, spacer = "   ", print_it = True, **kwargs)
     return []
 
 class HandRank(Enum):
-    ROYAL_FLUSH = 1
-    STRAIGHT_FLUSH = 2
-    FOUR_OF_A_KIND = 3
-    FULL_HOUSE = 4
-    FLUSH = 5
-    STRAIGHT = 6
+    ROYAL_FLUSH = 1      # X
+    STRAIGHT_FLUSH = 2   # X
+    FOUR_OF_A_KIND = 3   # X
+    FULL_HOUSE = 4       # X
+    FLUSH = 5            # X
+    STRAIGHT = 6         # X
     THREE_OF_A_KIND = 7
     TWO_PAIR = 8
     PAIR = 9
@@ -416,15 +416,6 @@ class Player:
             self.is_in = False
             return True
         
-        """
-        diff = {
-            MoveType.CALL: self.game.bet - self.bet,
-            MoveType.BET: move.amount,
-            MoveType.RAISE: self.game.bet - self.bet + move.amount,
-            MoveType.RERAISE: self.game.bet - self.bet + move.amount
-        }[move.type]
-        """
-        
         diff = self.game.bet - self.bet + move.amount
         
         log = {
@@ -462,12 +453,53 @@ class Player:
             if self.money >= self.game.big_blind:
                 result.append(MoveType.BET)
         else:
+            # tweaking:
             min_raise_total = to_call + self.game.last_full_raise
             if self.money >= min_raise_total:
                 if self.game.raises_in_round > 0:
                     result.append(MoveType.RERAISE)
                 else:
                     result.append(MoveType.RAISE)
+        
+        return result
+
+    @property
+    def hands(self) -> list[Hand]:
+        hand_cards = self.cards + self.game.community_cards
+        result = []
+        
+        # === HIGH CARD ===================
+        
+        for card in hand_cards:
+            result.append(Hand(HandRank.HIGH_CARD, [card]))
+        
+        # === PAIR ========================
+        
+        pairs = []
+        for i, card1 in enumerate(hand_cards):
+            for card2 in hand_cards[i + 1:]:
+                if card1.rank == card2.rank:
+                    hand = Hand(HandRank.PAIR, [card1, card2])
+                    pairs.append(hand)
+                    result.append(hand)
+        
+        # === TWO PAIR ====================
+        
+        if len(pairs) >= 2:
+            for i, pair1 in enumerate(pairs[:-1]):
+                for pair2 in pairs[i + 1:]:
+                    result.append(Hand(HandRank.TWO_PAIR, pair1.cards + pair2.cards))
+        
+        # === THREE PAIR ===================
+        
+        for i1, card1 in enumerate(hand_cards):
+            for i2, card2 in enumerate(hand_cards[i1 + 1:]):
+                for card3 in hand_cards[i1 + 1 + i2 + 1:]:
+                    if card1.rank == card2.rank and card1.rank == card3.rank:
+                        hand = Hand(HandRank.THREE_OF_A_KIND, [card1, card2, card3])
+                        result.append(hand)
+        
+        # =================================
         
         return result
 
@@ -524,11 +556,11 @@ class Game:
             self.raises_in_round = 0
 
     def your_turn(self):
-        moved = False
-        while not moved or not self.players[self.turn].is_in:
+        for _ in range(len(self.players)):
             self.turn += 1
             self.turn %= len(self.players)
-            moved = True
+            if self.players[self.turn].is_in:
+                break
 
     def play_move(self) -> bool:
         player = self.players[self.turn]
@@ -547,7 +579,36 @@ class Game:
         except ValueError:
             return False
 
+    @property
+    def winner(self) -> int:
+        RESET = "\033[0m"
+        
+        RED = "\033[31m"
+        GREEN = "\033[32m"
+        YELLOW = "\033[33m"
+        BLUE = "\033[34m"
+        MAGENTA = "\033[35m"
+        CYAN = "\033[36m"
+        WHITE = "\033[37m"
+        GRAY = "\033[90m"
 
+        print("==============")
+        for player in self.players:
+            for hand in player.hands:
+                cards = [
+                    f"{card.rank.value}{card.suit.value}"
+                    for card in hand.cards
+                ]
+                color = {
+                    HandRank.HIGH_CARD: "",
+                    HandRank.PAIR: BLUE,
+                    HandRank.TWO_PAIR: GREEN,
+                    HandRank.THREE_OF_A_KIND: RED,
+                }[hand.rank]
+                print(f"{color}{hand.rank} ({', '.join(cards)}){RESET}")
+            print("==============")
+        
+        return None
 
 if __name__ == "__main__":
     print("Hello World!")

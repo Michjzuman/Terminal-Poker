@@ -77,7 +77,7 @@ class Table:
         self.count_down = WAIT_UNITL_ROUND_START
         
         self.info = {}
-    
+        
     async def run(self):
         while self.game is None:
             if len(self.players) >= 2:
@@ -90,37 +90,41 @@ class Table:
         
         while not self.game.finished:
             while True:
+                print("a")
+                
                 self.info = {
+                    "pool": self.game.pool,
                     "bet": self.game.bet,
                     "turn": self.game.turn,
                     "small_blind": self.game.small_blind,
                     "big_blind": self.game.big_blind,
                     "phase": self.game.phase,
+                    "agressor": self.game.agressor,
                     "community_cards": self.game.community_cards,
                     "players": [
                         {
                             "name": player.name,
                             "money": player.money,
-                            "is_in": player.is_in
+                            "is_in": player.is_in,
+                            #"possible_moves": player.possible_moves
                         }
                         for player in self.players
                     ]
                 }
+                
                 while True:
                     if self.game.play_move():
                         print("moved")
+                        #print(self.game.players[0].possible_moves)
                         break
-                    print("not moved")
                     await asyncio.sleep(0.1)
-                
-                self.info["turn"] = self.game.turn
                 
                 if self.game.agressor == self.game.turn:
                     break
                 else:
                     await asyncio.sleep(1)
             
-                self.game.next_phase()
+            self.game.next_phase()
             
             await asyncio.sleep(1)
 
