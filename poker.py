@@ -339,11 +339,11 @@ def print_cards_in_line(*cards: Card, spacer = "   ", print_it = True, **kwargs)
 
 class HandRank(Enum):
     ROYAL_FLUSH = 1      # X
-    STRAIGHT_FLUSH = 2   # X
-    FOUR_OF_A_KIND = 3   # X
-    FULL_HOUSE = 4       # X
-    FLUSH = 5            # X
-    STRAIGHT = 6         # X
+    STRAIGHT_FLUSH = 2
+    FOUR_OF_A_KIND = 3
+    FULL_HOUSE = 4
+    FLUSH = 5
+    STRAIGHT = 6
     THREE_OF_A_KIND = 7
     TWO_PAIR = 8
     PAIR = 9
@@ -490,14 +490,96 @@ class Player:
                 for pair2 in pairs[i + 1:]:
                     result.append(Hand(HandRank.TWO_PAIR, pair1.cards + pair2.cards))
         
-        # === THREE PAIR ===================
+        # === THREE OF A KIND =============
         
+        three_of_a_kinds = []
         for i1, card1 in enumerate(hand_cards):
             for i2, card2 in enumerate(hand_cards[i1 + 1:]):
-                for card3 in hand_cards[i1 + 1 + i2 + 1:]:
+                for card3 in hand_cards[i1 + i2 + 2:]:
                     if card1.rank == card2.rank and card1.rank == card3.rank:
                         hand = Hand(HandRank.THREE_OF_A_KIND, [card1, card2, card3])
                         result.append(hand)
+                        three_of_a_kinds.append(hand)
+        
+        # === STRAIGHT ====================
+        
+        straights = []
+        ranks = sorted(hand_cards, key=lambda c: c.rank.number)
+        all_ranks = [Rank.ACE.number] + [rank.number for rank in list(Rank)]
+        for i, rank1 in enumerate(all_ranks[:-4]):
+            straight = all_ranks[i:i+5]
+            cards = []
+            for rank in straight:
+                rank_numbers = [r.rank.number for r in ranks]
+                if rank in rank_numbers:
+                    cards.append(ranks[rank_numbers.index(rank)])
+
+            if len(cards) == 5:
+                hand = Hand(HandRank.STRAIGHT, cards)
+                result.append(hand)
+                straights.append(hand)
+        
+        # === FLUSH =======================
+        
+        flushes = []
+        for i1, card1 in enumerate(hand_cards):
+            for i2, card2 in enumerate(hand_cards[i1 + 1:]):
+                for i3, card3 in enumerate(hand_cards[i1 + i2 + 2:]):
+                    for i4, card4 in enumerate(hand_cards[i1 + i2 + i3 + 3:]):
+                        for card5 in hand_cards[i1 + i2 + i3 + i4 + 4:]:
+                            cards = [card1, card2, card3, card4, card5]
+                            if all(card.suit == cards[0].suit for card in cards):
+                                hand = Hand(HandRank.FLUSH, cards)
+                                result.append(hand)
+                                flushes.append(hand)
+        
+        # === FULL HOUSE ==================
+        
+        if len(pairs) > 0 and len(three_of_a_kinds) > 0:
+            for three_of_a_kind in three_of_a_kinds:
+                for pair in pairs:
+                    cards = three_of_a_kind.cards + pair.cards
+                    if not any([
+                        card1 == card2
+                        for card1 in three_of_a_kind.cards
+                        for card2 in pair.cards
+                    ]):
+                        result.append(Hand(HandRank.FULL_HOUSE, cards))
+        
+        # === FOUR OF A KIND =============
+        
+        for i1, card1 in enumerate(hand_cards):
+            for i2, card2 in enumerate(hand_cards[i1 + 1:]):
+                for i3, card3 in enumerate(hand_cards[i1 + i2 + 2:]):
+                    for card4 in hand_cards[i1 + i2 + i3 + 3:]:
+                        cards = [card1, card2, card3, card4]
+                        if all(card.rank == cards[0].rank for card in cards):
+                            hand = Hand(HandRank.FOUR_OF_A_KIND, cards)
+                            result.append(hand)
+                            three_of_a_kinds.append(hand)
+        
+        # === STRAIGHT / ROYAL FLUSH =====
+        
+        if len(straights) > 0 and len(flushes) > 0:
+            for straight in straights:
+                for flush in flushes:
+                    straight_cards = sorted([
+                        straight_card.rank.number
+                        for straight_card in straight.cards
+                    ])
+                    flush_cards = sorted([
+                        flush_card.rank.number
+                        for flush_card in flush.cards
+                    ])
+                    if flush_cards == straight_cards:
+                        ranks = [
+                            flush_card.rank.value
+                            for flush_card in flush.cards
+                        ]
+                        result.append(Hand(
+                            HandRank.ROYAL_FLUSH if "A" in ranks else HandRank.STRAIGHT_FLUSH,
+                            sorted(straight.cards, key=lambda c: c.rank.number)
+                        ))
         
         # =================================
         
@@ -604,6 +686,12 @@ class Game:
                     HandRank.PAIR: BLUE,
                     HandRank.TWO_PAIR: GREEN,
                     HandRank.THREE_OF_A_KIND: RED,
+                    HandRank.STRAIGHT: CYAN,
+                    HandRank.FLUSH: YELLOW,
+                    HandRank.FULL_HOUSE: MAGENTA,
+                    HandRank.FOUR_OF_A_KIND: "",
+                    HandRank.STRAIGHT_FLUSH: "",
+                    HandRank.ROYAL_FLUSH: YELLOW,
                 }[hand.rank]
                 print(f"{color}{hand.rank} ({', '.join(cards)}){RESET}")
             print("==============")
