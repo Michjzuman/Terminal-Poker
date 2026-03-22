@@ -13,6 +13,8 @@ from enum import Enum
 from dataclasses import dataclass
 import random
 import platform
+from collections import Counter
+from itertools import combinations
 
 IS_MACOS = platform.system() == "Darwin"
 
@@ -338,7 +340,7 @@ def print_cards_in_line(*cards: Card, spacer = "   ", print_it = True, **kwargs)
     return []
 
 class HandRank(Enum):
-    ROYAL_FLUSH = 1      # X
+    ROYAL_FLUSH = 1
     STRAIGHT_FLUSH = 2
     FOUR_OF_A_KIND = 3
     FULL_HOUSE = 4
@@ -348,11 +350,103 @@ class HandRank(Enum):
     TWO_PAIR = 8
     PAIR = 9
     HIGH_CARD = 10
+    
+    @property
+    def name(self) -> str:
+        return {
+            HandRank.ROYAL_FLUSH: "Royal Flush",
+            HandRank.STRAIGHT_FLUSH: "Straight Flush",
+            HandRank.FOUR_OF_A_KIND: "Four Of A Kind",
+            HandRank.FULL_HOUSE: "Full House",
+            HandRank.FLUSH: "Flush",
+            HandRank.STRAIGHT: "Straight",
+            HandRank.THREE_OF_A_KIND: "Three Of A Kind",
+            HandRank.TWO_PAIR: "Two Pair",
+            HandRank.PAIR: "Pair",
+            HandRank.HIGH_CARD :"High Card"
+        }[self]
 
 @dataclass
 class Hand:
     rank: HandRank
     cards: list[Card]
+    owner: "Player" = None
+    
+    @property
+    def points(self) -> list[int]:
+        
+        of_a_kind = [
+            HandRank.HIGH_CARD, HandRank.PAIR,
+            HandRank.THREE_OF_A_KIND, HandRank.FOUR_OF_A_KIND
+        ]
+        
+        sum_valued = [
+            HandRank.STRAIGHT, HandRank.FLUSH,
+            HandRank.STRAIGHT_FLUSH, HandRank.ROYAL_FLUSH
+        ]
+        
+        if any([self.rank is rank for rank in of_a_kind]):
+            return [self.cards[0].rank.number]
+        
+        elif self.rank is HandRank.TWO_PAIR:
+            c = sorted(self.cards, key=lambda c: c.rank.number)
+            return [
+                c[0].rank.number,
+                c[-1].rank.number
+            ]
+        
+        elif self.rank is HandRank.FULL_HOUSE:
+            return [self.cards[0].rank.number * 15 + self.cards[3].rank.number]
+        
+        elif (
+            any([self.rank is rank for rank in [HandRank.STRAIGHT, HandRank.STRAIGHT_FLUSH]])
+            and any([card.rank.value == "A" for card in self.cards])
+            and any([card.rank.value == "2" for card in self.cards])
+        ):
+            return [1 + 2 + 3 + 4 + 5]
+        
+        elif any([self.rank is rank for rank in sum_valued]):
+            return [sum([
+                card.rank.number
+                for card in self.cards
+            ])]
+        
+        return 67
+
+    def is_egual(self, other: "Hand"):
+        return (
+            other.rank == self.rank and
+            other.points == self.points
+        )
+
+def sort_hands(*hands: list[Hand]) -> list[Hand]:
+    
+    result = []
+    
+    for hand in hands:
+        found = False
+        
+        for i, position in enumerate(result):
+            if hand.rank.value < position.rank.value:
+                result.insert(i, hand)
+                found = True
+                break
+            
+            elif hand.rank.value == position.rank.value:
+                if hand.points[0] > position.points[0]:
+                    result.insert(i, hand)
+                    found = True
+                    break
+                elif hand.points[0] == position.points[0]:
+                    if len(hand.points) <= 1 or hand.points[1] > position.points[1]:
+                        result.insert(i, hand)
+                        found = True
+                        break
+        
+        if not found:
+            result.append(hand)
+    
+    return result
 
 class Phase(Enum):
     PREFLOP = "Preflop"
@@ -404,7 +498,8 @@ class Player:
         self.bet: int = 0
         self.is_in: bool = True
         self.game: "Game"
-        self.move: Move | None = None
+        self.move: Move = None
+        self.winning_hand: Hand = None
     
     def do_move(self, move: Move):
         if move.type == MoveType.CHECK:
@@ -577,11 +672,16 @@ class Player:
                             for flush_card in flush.cards
                         ]
                         result.append(Hand(
-                            HandRank.ROYAL_FLUSH if "A" in ranks else HandRank.STRAIGHT_FLUSH,
+                            HandRank.ROYAL_FLUSH
+                            if "A" in ranks and "K" in ranks else
+                            HandRank.STRAIGHT_FLUSH,
                             sorted(straight.cards, key=lambda c: c.rank.number)
                         ))
         
         # =================================
+        
+        for hand in result:
+            hand.owner = self
         
         return result
 
@@ -615,13 +715,13 @@ class Game:
     def bet(self) -> int:
         return max([player.bet for player in self.players])
     
-    def deal_cards(self):
+    def deal_cards(self) -> None:
         random.shuffle(self.stack)
         for player in self.players:
             player.cards += self.stack[-2:]
             self.stack = self.stack[:-2]
     
-    def next_phase(self):
+    def next_phase(self) -> None:
         if self.phase.next == None:
             self.finished = True
         else:
@@ -637,7 +737,7 @@ class Game:
             self.last_full_raise = self.big_blind
             self.raises_in_round = 0
 
-    def your_turn(self):
+    def your_turn(self) -> None:
         for _ in range(len(self.players)):
             self.turn += 1
             self.turn %= len(self.players)
@@ -662,41 +762,35 @@ class Game:
             return False
 
     @property
-    def winner(self) -> int:
-        RESET = "\033[0m"
-        
-        RED = "\033[31m"
-        GREEN = "\033[32m"
-        YELLOW = "\033[33m"
-        BLUE = "\033[34m"
-        MAGENTA = "\033[35m"
-        CYAN = "\033[36m"
-        WHITE = "\033[37m"
-        GRAY = "\033[90m"
+    def winner(self) -> Player:
 
-        print("==============")
-        for player in self.players:
-            for hand in player.hands:
-                cards = [
-                    f"{card.rank.value}{card.suit.value}"
-                    for card in hand.cards
-                ]
-                color = {
-                    HandRank.HIGH_CARD: "",
-                    HandRank.PAIR: BLUE,
-                    HandRank.TWO_PAIR: GREEN,
-                    HandRank.THREE_OF_A_KIND: RED,
-                    HandRank.STRAIGHT: CYAN,
-                    HandRank.FLUSH: YELLOW,
-                    HandRank.FULL_HOUSE: MAGENTA,
-                    HandRank.FOUR_OF_A_KIND: "",
-                    HandRank.STRAIGHT_FLUSH: "",
-                    HandRank.ROYAL_FLUSH: YELLOW,
-                }[hand.rank]
-                print(f"{color}{hand.rank} ({', '.join(cards)}){RESET}")
-            print("==============")
+        all_hands = []
         
-        return None
+        for player in self.players:
+            all_hands += player.hands
+        
+        sorted_hands = sort_hands(*all_hands)
+        
+        if sorted_hands:
+            
+            possible_winners = self.players.copy()
+            
+            for hand in sorted_hands:
+                if hand.owner in possible_winners:
+                    for player in self.players:
+                        if player != hand.owner and player in possible_winners:
+                            if not any([hand.is_egual(other_hand) for other_hand in player.hands]):
+                                possible_winners.remove(player)
+                
+                if len(possible_winners) <= 1:
+                    return possible_winners[0]
+            
+            return sorted_hands[0].owner
+        else:
+            return None
 
 if __name__ == "__main__":
-    print("Hello World!")
+    try:
+        import test
+    except ModuleNotFoundError:
+        print("Hello World!")
