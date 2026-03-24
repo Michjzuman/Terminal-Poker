@@ -504,10 +504,12 @@ class Player:
     def do_move(self, move: Move):
         if move.type == MoveType.CHECK:
             self.game.logs.append(f"{self.name} checked")
+            self.game.history.append(move)
             return True
         
         if move.type == MoveType.FOLD:
             self.game.logs.append(f"{self.name} folded")
+            self.game.history.append(move)
             self.is_in = False
             return True
         
@@ -526,6 +528,7 @@ class Player:
             self.money -= diff
             
             self.game.logs.append(log)
+            self.game.history.append(move)
             
             return True
         else:
@@ -537,24 +540,25 @@ class Player:
             return []
         
         result = [MoveType.FOLD]
+        
+        
         to_call = max(0, self.game.bet - self.bet)
         
         if to_call == 0:
+
             result.append(MoveType.CHECK)
+            result.append(MoveType.BET)
+    
         elif self.money >= to_call:
+
             result.append(MoveType.CALL)
-        
-        if self.game.bet == 0:
-            if self.money >= self.game.big_blind:
-                result.append(MoveType.BET)
-        else:
-            # tweaking:
-            min_raise_total = to_call + self.game.last_full_raise
-            if self.money >= min_raise_total:
-                if self.game.raises_in_round > 0:
-                    result.append(MoveType.RERAISE)
-                else:
-                    result.append(MoveType.RAISE)
+            
+            last_move = self.game.history[-1].type
+            if last_move is MoveType.RAISE or last_move is MoveType.RERAISE:
+                result.append(MoveType.RERAISE)
+            else:
+                result.append(MoveType.RAISE)
+
         
         return result
 
@@ -762,7 +766,7 @@ class Game:
             return False
 
     @property
-    def winner(self) -> Player:
+    def winners(self) -> list[Player]:
 
         all_hands = []
         
@@ -782,12 +786,12 @@ class Game:
                             if not any([hand.is_egual(other_hand) for other_hand in player.hands]):
                                 possible_winners.remove(player)
                 
-                if len(possible_winners) <= 1:
-                    return possible_winners[0]
+                if len(possible_winners) == 0:
+                    return possible_winners
             
-            return sorted_hands[0].owner
+            return possible_winners
         else:
-            return None
+            return [None]
 
 if __name__ == "__main__":
     try:

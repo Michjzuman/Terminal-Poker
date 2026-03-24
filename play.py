@@ -244,6 +244,13 @@ def read_key():
 
     return "OTHER"
 
+def read_key_nonblocking(timeout: float = 0.0):
+    if os.name != "nt" and sys.stdin.isatty():
+        ready, _, _ = select.select([sys.stdin.fileno()], [], [], timeout)
+        if not ready:
+            return None
+    return read_key()
+
 class Settings:
     def __init__(self):
         self.card_design: poker.Card.DesignOption = (
@@ -282,7 +289,7 @@ class UI:
         self.settings: Settings = Settings()
         
         self.username: str = "micha"
-        self.password: str = "geheim"
+        self.password: str = "abc"
     
     @property
     def current_host(self):
@@ -597,24 +604,51 @@ class UI:
                 break
     
     def table_view(self, id):
+        next_refresh = 0.0
+        last_phase = ""
+        
+        pointer_x = 1
+        
+        cards_hidden = False
+        
+        table = {}
+        me = {}
+        
+        my_cards = []
+        
         with cbreak_stdin():
             while True:
+                now = time.monotonic()
+                
+                if now >= next_refresh:
+                    try:
+                        _, data = get_json(self.current_host, "/get_tables")
+                        if data.get("ok"):
+                            for t in data["tables"]:
+                                if t["id"] == id and t["active"]:
+                                    table = t
+                                    for player in table["info"]["players"]:
+                                        if player["name"] == self.username:
+                                            me = player
+                                            break
+                        if last_phase != table["info"]["phase"]:
+                            _, my_cards_data = post_json(self.current_host, "/my_cards", {
+                                "username": self.username, "password": self.password, "table_id": id
+                            })
+                            if my_cards_data.get("ok"):
+                                my_cards = my_cards_data["cards"]
+                            last_phase = table["info"]["phase"]
+                    except TypeError:
+                        return
+                    
+                    next_refresh = now + 0.5
+                
                 self.reset_text()
-                
-                table = {}
-                
-                try:
-                    status, data = get_json(self.current_host, "/get_tables")
-                    if data["ok"]:
-                        for t in data["tables"]:
-                            if t["id"] == id and t["active"]:
-                                table = t
-                except TypeError:
-                    return
                 
                 if table != {}:
                 
-                    # community cards
+                    # === community cards ================================
+                    
                     self.draw_object(poker.print_cards_in_line(
                         poker.Card.Back,
                         *[
@@ -630,22 +664,46 @@ class UI:
                         back_design_option = poker.Card.Back.DesignOption(self.settings.card_back_design)
                     ), 5, 2, UI.Color.WHITE)
                     
-                    # pool
+                    # === pool ===========================================
+                    
                     pool_value = table['info']['pool']
                     if pool_value > 0:
                         pool = f"{pool_value}*"
                         self.draw_object([pool], 71 - round(len(pool) / 2), 5, UI.Color.GREEN)
                     
-                    # my cards
+                    # === my cards =======================================
+                    
                     self.draw_object(poker.print_cards_in_line(
-                        poker.Card(poker.Rank.KING, poker.Suit.HEARTS),
-                        poker.Card(poker.Rank.JACK, poker.Suit.HEARTS),
+                        *[
+                            poker.Card.Back
+                            for _ in range(2)
+                        ] if cards_hidden else [
+                            poker.Card(poker.Rank(card["rank"]), poker.Suit(card["suit"]))
+                            for card in my_cards
+                        ],
                         print_it = False,
                         design_option = poker.Card.DesignOption(self.settings.card_design),
                         back_design_option = poker.Card.Back.DesignOption(self.settings.card_back_design)
                     ), 5, 16, UI.Color.WHITE)
                     
-                    # players list
+                    # === possible moves =================================
+                    
+                    for i, move in enumerate(me["possible_moves"]):
+                        
+                        self.draw_object(
+                            ["".join([
+                                UI.Color.YELLOW.value if pointer_x == i else "",
+                                "[" if pointer_x == i else " ",
+                                f"{move}",
+                                "]" if pointer_x == i else " ",
+                                UI.Color.RESET.value
+                            ])],
+                            5 + sum([len(m) + 2 for m in me["possible_moves"][:i]]),
+                            25, UI.Color.WHITE
+                        )
+                    
+                    # === players list ===================================
+                    
                     players_list = []
                     for i, player in enumerate(table["info"]["players"]):
                         arrow = ">" if i == table["info"]["turn"] else " "
@@ -653,25 +711,39 @@ class UI:
                         gray = "" if player["is_in"] else UI.Color.GRAY.value + UI.Color.STRIKETHROUGH.value
                         reset = UI.Color.RESET.value if player["is_in"] else UI.Color.GRAY.value
                         players_list.append(
-                            f"{gray}{arrow} [{green}10*{reset}] {player['name']} {green}{player['money']}*"
+                            f"{gray}{arrow} [{green}{player['bet']}*{reset}] {player['name']} {green}{player['money']}*"
                         )
                     self.draw_object("\n\n".join(players_list).split("\n"), 45, 16)
+
+                    # ====================================================
                 
+                self.draw("←/→: Move • ENTER/SPACE: Select • H: Show/Hide Cards • Q: Quit")
                 
-                self.draw("↑/↓: Move • ENTER/SPACE: Select • Q: Quit")
+                print(me)
                 
-                print(table)
+                key = read_key_nonblocking(1 / self.fps)
                 
-                while True:
-                    key = read_key()
-                    if key in ("q", "Q"):
-                        exit()
-                    
-                    if key in ("r", "R"):
-                        break
-                    
-                    elif key == "ESC":
-                        return
+                peek = False
+                if key in ("q", "Q"):
+                    exit()
+                elif key == "RIGHT":
+                    pointer_x += 1
+                    pointer_x %= len(me["possible_moves"])
+                elif key == "LEFT":
+                    pointer_x -= 1
+                    pointer_x %= len(me["possible_moves"])
+                elif key in ["SPACE", "ENTER"]:
+                    post_json(self.current_host, "/do_move", {
+                        "username": self.username,
+                        "password": self.password,
+                        "table_id": id,
+                        "move_type": me["possible_moves"][pointer_x],
+                        "amount": 5
+                    })
+                elif key in ["h", "H", "c", "C"]:
+                    cards_hidden = not cards_hidden
+                elif key == "ESC":
+                    return
     
     def join_table_view(self):
         pointer = 0
@@ -683,14 +755,14 @@ class UI:
                 self.back_button()
                 
                 try:
-                    status, data = get_json(self.current_host, "/get_tables")
+                    status, get_tables_data = get_json(self.current_host, "/get_tables")
                     tables = [
                         f"""{
                             UI.Color.STRIKETHROUGH.value if table['active'] else ''
                         }Table {table['id'] + 1}     {
                             '(playing)' if table['active'] else '(waiting)'
                         }   ({table['players']}/8)"""
-                        for table in data["tables"]
+                        for table in get_tables_data["tables"]
                     ]
                 except TypeError:
                     return
@@ -727,12 +799,7 @@ class UI:
                         return
     
     def server_list_view(self):
-        self.current_server = self.picker(
-            self.servers,
-            UI.Color.CYAN,
-            self.current_server,
-            "Server List"
-        )
+        pass
     
     def minigames_view(self):
         pass
@@ -1186,5 +1253,8 @@ if __name__ == "__main__":
     
     ui = UI()
     
+    ##################
+    ui.table_view(0)
+    ##################
     
     ui.run()

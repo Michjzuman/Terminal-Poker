@@ -104,12 +104,14 @@ class Table:
                     "players": [
                         {
                             "name": player.name,
+                            "bet": player.bet,
                             "money": player.money,
                             "is_in": player.is_in,
-                            #"possible_moves": player.possible_moves
+                            "possible_moves": player.possible_moves
                         }
                         for player in self.players
-                    ]
+                    ],
+                    "logs": self.game.logs
                 }
                 
                 while True:
@@ -283,10 +285,18 @@ def my_cards(body: JoinTableBody):
     user = next((u for u in users if u.name == body.username), None)
     
     if verify_password(body.password, user.password_hash):
-        return {
-            "ok": True,
-            "cards": table
-        }
+        for player in table.players:
+            cards = player.cards
+            return {
+                "ok": True,
+                "cards": [
+                    {
+                        "rank": card.rank,
+                        "suit": card.suit
+                    }
+                    for card in cards
+                ]
+            }
     
     return {"ok": False}
 
