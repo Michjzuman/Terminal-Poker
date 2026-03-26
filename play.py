@@ -715,15 +715,6 @@ class UI:
                                 25, UI.Color.WHITE
                             )
                     
-                    # === logs ===========================================
-                    
-                    logs = [
-                        f"{UI.Color.RED.value}{i + 1}. {log}{UI.Color.RESET.value}"
-                        for i, log in list(enumerate(table["info"]["logs"]))[-15:]
-                    ]
-                    logs_x = 85 - max([UI.true_len(l) for l in logs] + [0])
-                    self.draw_object(logs,logs_x, max(11, 16 - max(0, len(logs) - 10)))
-                    
                     # === players list ===================================
                     
                     players_list = []
@@ -736,8 +727,15 @@ class UI:
                         players_list.append(
                             f"{gray}{arrow} [{green}{player['bet']}*{reset}] {highlight}{player['name']}{reset} {green}{player['money']}*"
                         )
-                    players_list_x = logs_x - max([UI.true_len(p) for p in players_list] + [0]) - 3
-                    self.draw_object(("\n" * (2 if len(players_list) <= 5 else 1)).join(players_list).split("\n"), players_list_x, 16)
+                    self.draw_object(("\n" * (2 if len(players_list) <= 5 else 1)).join(players_list).split("\n"), 30, 16)
+                    
+                    # === logs ===========================================
+                    
+                    logs = [
+                        f"{UI.Color.RED.value}{i + 1}. {log}{UI.Color.RESET.value}"
+                        for i, log in list(enumerate(table["info"]["logs"]))[-15:]
+                    ]
+                    self.draw_object(logs, 76 - max([UI.true_len(l) for l in logs] + [0]), max(11, 16 - max(0, len(logs) - 10)))
                     
                     # ====================================================
                 
