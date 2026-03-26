@@ -25,6 +25,8 @@ WAIT_UNITL_ROUND_START = 20
 
 table_counter = 0
 
+USERS_LIST_FILE = ".server-users-list.json"
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.table_tasks = [
@@ -90,8 +92,6 @@ class Table:
         
         while not self.game.finished:
             while True:
-                print("a")
-                
                 self.info = {
                     "pool": self.game.pool,
                     "bet": self.game.bet,
@@ -117,7 +117,6 @@ class Table:
                 while True:
                     if self.game.play_move():
                         print("moved")
-                        #print(self.game.players[0].possible_moves)
                         break
                     await asyncio.sleep(0.1)
                 
@@ -134,19 +133,20 @@ class User(poker.Player):
     def __init__(self, name: str, password_hash: str):
         super().__init__(name, 100)
         self.password_hash: str = password_hash
-        self.active: str = password_hash
 
 tables: list[Table] = [Table() for _ in range(4)]
 
 users: list[User] = []
+users_list = read_json_file(USERS_LIST_FILE)
+if users_list:
+    users = [
+        User(user["username"], user["password_hash"])
+        for user in users_list["users"]
+    ]
+else:
+    write_json_file(USERS_LIST_FILE, {"users": []})
 
 register_requests: list[User] = []
-
-data = {
-    "tables": tables,
-    "users": users,
-    "register_requests": register_requests
-}
 
 
 # === === === === === === === ===
@@ -169,7 +169,7 @@ def get_tables():
         "tables": [
             {
                 "id": table.id,
-                "active": table.game != None,
+                "active": table.info != {},
                 "players": len(table.players),
                 "count_down": table.count_down,
                 "info": table.info
@@ -224,6 +224,14 @@ def admin_approve_register_requests(body: LoginBody):
                 new_user = user
                 users.append(new_user)
                 register_requests.remove(new_user)
+                users_list = read_json_file(USERS_LIST_FILE)
+                if users_list:
+                    write_json_file(USERS_LIST_FILE, {
+                        "users": users_list["users"] + [{
+                            "username": user.name,
+                            "password_hash": user.password_hash
+                        }]
+                    })
                 return {"ok": True}
     return {"ok": False}
 
@@ -285,18 +293,16 @@ def my_cards(body: JoinTableBody):
     user = next((u for u in users if u.name == body.username), None)
     
     if verify_password(body.password, user.password_hash):
-        for player in table.players:
-            cards = player.cards
-            return {
-                "ok": True,
-                "cards": [
-                    {
-                        "rank": card.rank,
-                        "suit": card.suit
-                    }
-                    for card in cards
-                ]
-            }
+        return {
+            "ok": True,
+            "cards": [
+                {
+                    "rank": card.rank,
+                    "suit": card.suit
+                }
+                for card in user.cards
+            ]
+        }
     
     return {"ok": False}
 
@@ -309,17 +315,18 @@ def do_move(body: MoveBody):
     table = next((t for t in tables if t.id == body.table_id), None)
     user = next((u for u in users if u.name == body.username), None)
     
-    try:
-        move = poker.Move(
-            poker.MoveType(body.move_type),
-            body.amount
-        )
-        user.move = move
-        
-        print("move found!")
-        
-    except ValueError:
-        return {"ok": False}
+    if verify_password(body.password, user.password_hash):
+        try:
+            move = poker.Move(
+                poker.MoveType(body.move_type),
+                body.amount
+            )
+            user.move = move
+            
+            print("move found!")
+            
+        except ValueError:
+            return {"ok": False}
 
     return {"ok": True}
 
@@ -329,6 +336,7 @@ def do_move(body: MoveBody):
 def run():
     password = getpass("New Admin Password: ")
     write_json_file(".admin-password-hash.json", {"password": hash_password(password)})
+    
     uvicorn.run(
         "server:app",
         host="0.0.0.0",
@@ -337,4 +345,7 @@ def run():
     )
 
 if __name__ == "__main__":
-    run()
+    try:
+        run()
+    except KeyboardInterrupt:
+        exit()

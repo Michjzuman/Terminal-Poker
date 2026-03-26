@@ -50,3 +50,4 @@ test.py
 # --- Storage ---
 .admin-password-hash.json
 .poker-settings.json
+.server-users-list.json

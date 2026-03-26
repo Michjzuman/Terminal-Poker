@@ -288,8 +288,8 @@ class UI:
         
         self.settings: Settings = Settings()
         
-        self.username: str = "micha"
-        self.password: str = "abc"
+        self.username: str = ""
+        self.password: str = ""
     
     @property
     def current_host(self):
@@ -613,8 +613,11 @@ class UI:
         
         table = {}
         me = {}
+        possible_moves = []
         
         my_cards = []
+        my_turn: bool = False
+        force_not_my_turn: bool = False
         
         with cbreak_stdin():
             while True:
@@ -627,19 +630,29 @@ class UI:
                             for t in data["tables"]:
                                 if t["id"] == id and t["active"]:
                                     table = t
-                                    for player in table["info"]["players"]:
-                                        if player["name"] == self.username:
-                                            me = player
-                                            break
-                        if last_phase != table["info"]["phase"]:
-                            _, my_cards_data = post_json(self.current_host, "/my_cards", {
-                                "username": self.username, "password": self.password, "table_id": id
-                            })
-                            if my_cards_data.get("ok"):
-                                my_cards = my_cards_data["cards"]
-                            last_phase = table["info"]["phase"]
-                    except TypeError:
-                        return
+                                    if "players" in list(t["info"].keys()):
+                                        for i, player in enumerate(t["info"]["players"]):
+                                            if player["name"] == self.username:
+                                                me = player
+                                                possible_moves = me["possible_moves"]
+                                                if t["info"]["turn"] == i:
+                                                    if not my_turn:
+                                                        force_not_my_turn = False
+                                                    my_turn = True
+                                                else:
+                                                    my_turn = False
+                                                break
+                            if "phase" in list(table["info"].keys()) and last_phase != table["info"]["phase"]:
+                                _, my_cards_data = post_json(self.current_host, "/my_cards", {
+                                    "username": self.username,
+                                    "password": self.password,
+                                    "table_id": id
+                                })
+                                if my_cards_data.get("ok"):
+                                    my_cards = my_cards_data["cards"]
+                                last_phase = table["info"]["phase"]
+                    except TypeError or KeyError:
+                        pass
                     
                     next_refresh = now + 0.5
                 
@@ -676,7 +689,7 @@ class UI:
                     self.draw_object(poker.print_cards_in_line(
                         *[
                             poker.Card.Back
-                            for _ in range(2)
+                            for _ in range(len(my_cards))
                         ] if cards_hidden else [
                             poker.Card(poker.Rank(card["rank"]), poker.Suit(card["suit"]))
                             for card in my_cards
@@ -688,19 +701,28 @@ class UI:
                     
                     # === possible moves =================================
                     
-                    for i, move in enumerate(me["possible_moves"]):
-                        
-                        self.draw_object(
-                            ["".join([
-                                UI.Color.YELLOW.value if pointer_x == i else "",
-                                "[" if pointer_x == i else " ",
-                                f"{move}",
-                                "]" if pointer_x == i else " ",
-                                UI.Color.RESET.value
-                            ])],
-                            5 + sum([len(m) + 2 for m in me["possible_moves"][:i]]),
-                            25, UI.Color.WHITE
-                        )
+                    if my_turn and not force_not_my_turn:
+                        for i, move in enumerate(possible_moves):
+                            self.draw_object(
+                                ["".join([
+                                    UI.Color.YELLOW.value if pointer_x == i else "",
+                                    "[" if pointer_x == i else " ",
+                                    f"{move}",
+                                    "]" if pointer_x == i else " ",
+                                    UI.Color.RESET.value
+                                ])],
+                                5 + sum([len(m) + 2 for m in me["possible_moves"][:i]]),
+                                25, UI.Color.WHITE
+                            )
+                    
+                    # === logs ===========================================
+                    
+                    logs = [
+                        f"{UI.Color.RED.value}{i + 1}. {log}{UI.Color.RESET.value}"
+                        for i, log in list(enumerate(table["info"]["logs"]))[-15:]
+                    ]
+                    logs_x = 85 - max([UI.true_len(l) for l in logs] + [0])
+                    self.draw_object(logs,logs_x, max(11, 16 - max(0, len(logs) - 10)))
                     
                     # === players list ===================================
                     
@@ -710,38 +732,83 @@ class UI:
                         green = UI.Color.GREEN.value if player["is_in"] else ""
                         gray = "" if player["is_in"] else UI.Color.GRAY.value + UI.Color.STRIKETHROUGH.value
                         reset = UI.Color.RESET.value if player["is_in"] else UI.Color.GRAY.value
+                        highlight = UI.Color.CYAN.value if player["name"] == self.username else ""
                         players_list.append(
-                            f"{gray}{arrow} [{green}{player['bet']}*{reset}] {player['name']} {green}{player['money']}*"
+                            f"{gray}{arrow} [{green}{player['bet']}*{reset}] {highlight}{player['name']}{reset} {green}{player['money']}*"
                         )
-                    self.draw_object("\n\n".join(players_list).split("\n"), 45, 16)
-
+                    players_list_x = logs_x - max([UI.true_len(p) for p in players_list] + [0]) - 3
+                    self.draw_object(("\n" * (2 if len(players_list) <= 5 else 1)).join(players_list).split("\n"), players_list_x, 16)
+                    
                     # ====================================================
                 
                 self.draw("←/→: Move • ENTER/SPACE: Select • H: Show/Hide Cards • Q: Quit")
                 
-                print(me)
-                
                 key = read_key_nonblocking(1 / self.fps)
                 
-                peek = False
                 if key in ("q", "Q"):
                     exit()
                 elif key == "RIGHT":
                     pointer_x += 1
-                    pointer_x %= len(me["possible_moves"])
+                    pointer_x %= max(1, len(possible_moves))
                 elif key == "LEFT":
                     pointer_x -= 1
-                    pointer_x %= len(me["possible_moves"])
-                elif key in ["SPACE", "ENTER"]:
-                    post_json(self.current_host, "/do_move", {
+                    pointer_x %= max(1, len(possible_moves))
+                elif key in [" ", "ENTER"] and my_turn and not force_not_my_turn:
+                    status, do_move_data = post_json(self.current_host, "/do_move", {
                         "username": self.username,
                         "password": self.password,
                         "table_id": id,
-                        "move_type": me["possible_moves"][pointer_x],
+                        "move_type": possible_moves[pointer_x],
                         "amount": 5
                     })
+                    if do_move_data.get("ok"):
+                        force_not_my_turn = True
                 elif key in ["h", "H", "c", "C"]:
                     cards_hidden = not cards_hidden
+                elif key == "ESC":
+                    return
+    
+    def table_lobby_view(self, id):
+        next_refresh = 0.0
+        
+        cards_hidden = False
+        
+        with cbreak_stdin():
+            while True:
+                now = time.monotonic()
+                
+                if now >= next_refresh:
+                    try:
+                        _, data = get_json(self.current_host, "/get_tables")
+                        if data.get("ok"):
+                            for t in data["tables"]:
+                                if t["id"] == id:
+                                    if t["active"]:
+                                        self.table_view(id)
+                                        return
+                                    else:
+                                        table = t
+                    except TypeError:
+                        return
+                    
+                    next_refresh = now + 0.5
+                
+                self.reset_text()
+                
+                self.back_button()
+                
+                self.label("Countdown", 8, UI.Color.GRAY)
+                self.label(str(table['count_down']), 10, UI.Color.YELLOW)
+                
+                self.label("Players", 14, UI.Color.GRAY)
+                self.label(str(table["players"]), 16, UI.Color.CYAN)
+                
+                self.draw("Q: Quit")
+                
+                key = read_key_nonblocking(1 / self.fps)
+                
+                if key in ("q", "Q"):
+                    exit()
                 elif key == "ESC":
                     return
     
@@ -790,10 +857,10 @@ class UI:
                             {
                                 "username": self.username,
                                 "password": self.password,
-                                "table_id": data["tables"][pointer]["id"]
+                                "table_id": get_tables_data["tables"][pointer]["id"]
                             }
                         )
-                        self.table_view(data["tables"][pointer]["id"])
+                        self.table_lobby_view(get_tables_data["tables"][pointer]["id"])
                         break
                     elif key == "ESC":
                         return
@@ -1252,9 +1319,5 @@ class UI:
 if __name__ == "__main__":
     
     ui = UI()
-    
-    ##################
-    ui.table_view(0)
-    ##################
     
     ui.run()
