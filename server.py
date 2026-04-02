@@ -13,6 +13,7 @@ from fastapi import FastAPI, HTTPException
 from contextlib import asynccontextmanager, suppress
 from pydantic import BaseModel, Field
 from getpass import getpass
+from datetime import datetime
 import uvicorn
 import bcrypt
 import asyncio
@@ -21,11 +22,12 @@ import os
 
 import poker
 
-WAIT_UNITL_ROUND_START = 20
+WAIT_UNITL_ROUND_START = 5 # -> 20
+HANDSHAKE_LIMIT = 60 # -> 5
+MOVE_TIME_LIMIT = 30 # to do
+USERS_LIST_FILE = ".server-users-list.json"
 
 table_counter = 0
-
-USERS_LIST_FILE = ".server-users-list.json"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -74,7 +76,7 @@ class Table:
         table_counter += 1
         
         self.game: poker.Game = None
-        self.players: list[poker.Player] = []
+        self.players: list["User"] = []
         
         self.count_down = WAIT_UNITL_ROUND_START
         
@@ -87,6 +89,9 @@ class Table:
                 if self.count_down <= 0:
                     self.game = poker.Game(*self.players)
             await asyncio.sleep(1)
+        
+        for player in self.players:
+            player.last_handshake = (self.id, datetime.now())
         
         self.game.deal_cards()
         
@@ -118,6 +123,13 @@ class Table:
                     if self.game.play_move():
                         print("moved")
                         break
+                    for player in self.players:
+                        if player.is_in:
+                            tid, last_handshake = player.last_handshake
+                            diff = (datetime.now() - last_handshake).total_seconds()
+                            if diff > HANDSHAKE_LIMIT or tid != self.id:
+                                player.cards = []
+                                player.move = poker.Move(poker.MoveType.FOLD)
                     await asyncio.sleep(0.1)
                 
                 if self.game.agressor == self.game.turn:
@@ -133,6 +145,7 @@ class User(poker.Player):
     def __init__(self, name: str, password_hash: str):
         super().__init__(name, 100)
         self.password_hash: str = password_hash
+        self.last_handshake = ()
 
 tables: list[Table] = [Table() for _ in range(4)]
 
@@ -151,7 +164,6 @@ register_requests: list[User] = []
 
 # === === === === === === === ===
 # --- GET --- ---
-
 
 @app.get("/")
 def root():
@@ -268,6 +280,23 @@ def login(body: LoginBody):
 class JoinTableBody(LoginBody):
     table_id: int = Field(..., ge=0)
 
+@app.post("/handshake")
+def handshake(body: JoinTableBody):
+    table = next((t for t in tables if t.id == body.table_id), None)
+    user = next((u for u in users if u.name == body.username), None)
+    
+    if table is None:
+        raise HTTPException(status_code=404, detail="Table not found")
+
+    if table.game is None:
+        raise HTTPException(status_code=409, detail="Game already running")
+    
+    if user is None or not verify_password(body.password, user.password_hash):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+    
+    user.last_handshake = (body.table_id, datetime.now())
+    return {"ok": True}
+
 @app.post("/join_table")
 def join_table(body: JoinTableBody):
     table = next((t for t in tables if t.id == body.table_id), None)
@@ -315,18 +344,30 @@ def do_move(body: MoveBody):
     table = next((t for t in tables if t.id == body.table_id), None)
     user = next((u for u in users if u.name == body.username), None)
     
+    if table is None:
+        raise HTTPException(status_code=404, detail="Table not found")
+    
+    if table.game is None:
+        raise HTTPException(status_code=409, detail="Game not running")
+    
     if verify_password(body.password, user.password_hash):
         try:
             move = poker.Move(
                 poker.MoveType(body.move_type),
                 body.amount
             )
+            if not move.type in user.possible_moves:
+                raise HTTPException(status_code=401, detail="Move not legal")
+            
+            if move.type.requires_amount and (move.amount <= 0 or move.amount > user.money):
+                raise HTTPException(status_code=401, detail="Amount not legal")
+            
             user.move = move
             
             print("move found!")
             
         except ValueError:
-            return {"ok": False}
+            raise HTTPException(status_code=401, detail="Move not legal")
 
     return {"ok": True}
 

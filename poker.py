@@ -13,8 +13,6 @@ from enum import Enum
 from dataclasses import dataclass
 import random
 import platform
-from collections import Counter
-from itertools import combinations
 
 IS_MACOS = platform.system() == "Darwin"
 
@@ -484,6 +482,17 @@ class MoveType(Enum):
     RERAISE = "Re-Raise"
     
     FOLD = "Fold"
+    
+    @property
+    def requires_amount(self):
+        return {
+            MoveType.CHECK: False,
+            MoveType.CALL: False,
+            MoveType.BET: True,
+            MoveType.RAISE: True,
+            MoveType.RERAISE: True,
+            MoveType.FOLD: False,
+        }[self]
 
 @dataclass
 class Move:
@@ -510,6 +519,7 @@ class Player:
         if move.type == MoveType.FOLD:
             self.game.logs.append(f"{self.name} folded")
             self.game.history.append(move)
+            self.cards = []
             self.is_in = False
             return True
         

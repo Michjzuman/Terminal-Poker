@@ -607,7 +607,9 @@ class UI:
         next_refresh = 0.0
         last_phase = ""
         
-        pointer_x = 1
+        pointer_x: int = 1
+        amount: int = 5
+        amount_input: bool = False
         
         cards_hidden = False
         
@@ -651,6 +653,13 @@ class UI:
                                 if my_cards_data.get("ok"):
                                     my_cards = my_cards_data["cards"]
                                 last_phase = table["info"]["phase"]
+                    
+                        post_json(self.current_host, "/handshake", {
+                            "username": self.username,
+                            "password": self.password,
+                            "table_id": id
+                        })
+                    
                     except TypeError or KeyError:
                         pass
                     
@@ -660,6 +669,12 @@ class UI:
                 
                 if table != {}:
                 
+                    # === phase label ====================================
+                    
+                    self.draw_object([
+                        table["info"]["phase"]
+                    ], 6, 2, UI.Color.GRAY)
+                    
                     # === community cards ================================
                     
                     self.draw_object(poker.print_cards_in_line(
@@ -675,7 +690,7 @@ class UI:
                         spacer = " ",
                         design_option = poker.Card.DesignOption(self.settings.card_design),
                         back_design_option = poker.Card.Back.DesignOption(self.settings.card_back_design)
-                    ), 5, 2, UI.Color.WHITE)
+                    ), 5, 3, UI.Color.WHITE)
                     
                     # === pool ===========================================
                     
@@ -702,18 +717,72 @@ class UI:
                     # === possible moves =================================
                     
                     if my_turn and not force_not_my_turn:
-                        for i, move in enumerate(possible_moves):
+                        if amount_input:
                             self.draw_object(
                                 ["".join([
-                                    UI.Color.YELLOW.value if pointer_x == i else "",
-                                    "[" if pointer_x == i else " ",
-                                    f"{move}",
-                                    "]" if pointer_x == i else " ",
-                                    UI.Color.RESET.value
+                                    UI.Color.GRAY.value,
+                                    "↑/↓ • Amount to ",
+                                    possible_moves[pointer_x].lower(), ": ",
+                                    UI.Color.GREEN.value,
+                                    str(amount), "*", (
+                                        "".join([
+                                            UI.Color.GRAY.value,
+                                            " (All In",
+                                            *([
+                                                ": ", UI.Color.GREEN.value,
+                                                str(me["money"]), "*",
+                                                UI.Color.GRAY.value
+                                            ] if amount > me["money"] else []),
+                                            ")"
+                                        ])
+                                        if amount >= me["money"] else ''
+                                    ), (
+                                        "".join([
+                                            UI.Color.GRAY.value,
+                                            " (At Least: ",
+                                            UI.Color.GREEN.value,
+                                            "1*",
+                                            UI.Color.GRAY.value,
+                                            ")"
+                                        ])
+                                        if amount < 1 else ''
+                                    )
                                 ])],
-                                5 + sum([len(m) + 2 for m in me["possible_moves"][:i]]),
-                                25, UI.Color.WHITE
+                                5, 25
                             )
+                        else:
+                            reminders = [
+                                *(
+                                    ["(All In)"]
+                                    if "Call" == possible_moves[pointer_x]
+                                    and me["bet"] + me["money"] <= table["info"]["bet"]
+                                    else []
+                                ),
+                                *(
+                                    ["".join([
+                                        "(Cost: ",
+                                        UI.Color.GREEN.value,
+                                        str(table["info"]["bet"] - me["bet"]), "*",
+                                        UI.Color.RESET.value + ")"
+                                    ])]
+                                    if "Call" == possible_moves[pointer_x]
+                                    else []
+                                )
+                            ]
+                            line = possible_moves + reminders
+                            for i, move in enumerate(line):
+                                self.draw_object(
+                                    ["".join([
+                                        *([
+                                            UI.Color.YELLOW.value, "["
+                                        ] if pointer_x == i else [" "]),
+                                        f"{move}",
+                                        *(["]"] if pointer_x == i else [" "]),
+                                        UI.Color.RESET.value
+                                    ])],
+                                    5 + sum([len(m) + 2 for m in line[:i]]),
+                                    25, UI.Color.WHITE
+                                )
                     
                     # === players list ===================================
                     
@@ -733,7 +802,7 @@ class UI:
                     
                     logs = [
                         f"{UI.Color.RED.value}{i + 1}. {log}{UI.Color.RESET.value}"
-                        for i, log in list(enumerate(table["info"]["logs"]))[-15:]
+                        for i, log in list(enumerate(table["info"]["logs"]))[-14:]
                     ]
                     self.draw_object(logs, 76 - max([UI.true_len(l) for l in logs] + [0]), max(11, 16 - max(0, len(logs) - 10)))
                     
@@ -745,26 +814,47 @@ class UI:
                 
                 if key in ("q", "Q"):
                     exit()
-                elif key == "RIGHT":
+                elif not amount_input and key == "RIGHT":
                     pointer_x += 1
                     pointer_x %= max(1, len(possible_moves))
-                elif key == "LEFT":
+                elif not amount_input and key == "LEFT":
                     pointer_x -= 1
                     pointer_x %= max(1, len(possible_moves))
-                elif key in [" ", "ENTER"] and my_turn and not force_not_my_turn:
-                    status, do_move_data = post_json(self.current_host, "/do_move", {
-                        "username": self.username,
-                        "password": self.password,
-                        "table_id": id,
-                        "move_type": possible_moves[pointer_x],
-                        "amount": 5
-                    })
-                    if do_move_data.get("ok"):
-                        force_not_my_turn = True
+                elif not amount_input and key in [" ", "ENTER"] and my_turn and not force_not_my_turn:
+                    if possible_moves[pointer_x] in ["Raise", "Re-Raise", "Bet"]:
+                        amount_input = True
+                    else:
+                        status, do_move_data = post_json(self.current_host, "/do_move", {
+                            "username": self.username,
+                            "password": self.password,
+                            "table_id": id,
+                            "move_type": possible_moves[pointer_x],
+                            "amount": 0
+                        })
+                        if do_move_data.get("ok"):
+                            force_not_my_turn = True
+                elif amount_input and key in [" ", "ENTER"] and my_turn and not force_not_my_turn:
+                    try:
+                        status, do_move_data = post_json(self.current_host, "/do_move", {
+                            "username": self.username,
+                            "password": self.password,
+                            "table_id": id,
+                            "move_type": possible_moves[pointer_x],
+                            "amount": max(1, min(me["money"], int(amount)))
+                        })
+                        if do_move_data.get("ok"):
+                            amount_input = False
+                            force_not_my_turn = True
+                    except ValueError:
+                        pass
+                elif amount_input and key == "ESC":
+                    amount_input = False
+                elif amount_input and key in ["UP", "RIGHT"]:
+                    amount = min(me["money"], amount + 1)
+                elif amount_input and key in ["DOWN", "LEFT"]:
+                    amount = max(0, amount - 1)
                 elif key in ["h", "H", "c", "C"]:
                     cards_hidden = not cards_hidden
-                elif key == "ESC":
-                    return
     
     def table_lobby_view(self, id):
         next_refresh = 0.0
