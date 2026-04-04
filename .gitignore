@@ -51,3 +51,6 @@ test.py
 .admin-password-hash.json
 .poker-settings.json
 .server-users-list.json
+.current-host.json
+
+AGENTS.md

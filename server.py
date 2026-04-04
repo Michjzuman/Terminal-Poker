@@ -81,7 +81,34 @@ class Table:
         self.count_down = WAIT_UNITL_ROUND_START
         
         self.info = {}
-        
+    
+    def set_info(self):
+        self.info = {
+            "pool": self.game.pool,
+            "bet": self.game.bet,
+            "turn": self.game.turn,
+            "small_blind": self.game.small_blind,
+            "big_blind": self.game.big_blind,
+            "phase": self.game.phase,
+            "community_cards": self.game.community_cards,
+            "players": [
+                {
+                    "name": player.name,
+                    "bet": player.bet,
+                    "money": player.money,
+                    "is_in": player.is_in,
+                    "possible_moves": player.possible_moves,
+                    "cards": " ".join([
+                        card.rank.value + card.suit.symbol
+                        for card in player.cards
+                    ]) if player.cards_revealed else None
+                }
+                for player in self.players
+            ],
+            "logs": self.game.logs,
+            "winner": self.game.players.index(self.game.winners[0])
+        }
+    
     async def run(self):
         while self.game is None:
             if len(self.players) >= 2:
@@ -89,7 +116,6 @@ class Table:
                 if self.count_down <= 0:
                     self.game = poker.Game(*self.players)
             await asyncio.sleep(1)
-        
         for player in self.players:
             player.last_handshake = (self.id, datetime.now())
         
@@ -97,28 +123,7 @@ class Table:
         
         while not self.game.finished:
             while True:
-                self.info = {
-                    "pool": self.game.pool,
-                    "bet": self.game.bet,
-                    "turn": self.game.turn,
-                    "small_blind": self.game.small_blind,
-                    "big_blind": self.game.big_blind,
-                    "phase": self.game.phase,
-                    "agressor": self.game.agressor,
-                    "community_cards": self.game.community_cards,
-                    "players": [
-                        {
-                            "name": player.name,
-                            "bet": player.bet,
-                            "money": player.money,
-                            "is_in": player.is_in,
-                            "possible_moves": player.possible_moves
-                        }
-                        for player in self.players
-                    ],
-                    "logs": self.game.logs
-                }
-                
+                self.set_info()
                 while True:
                     if self.game.play_move():
                         print("moved")
@@ -131,13 +136,13 @@ class Table:
                                 player.cards = []
                                 player.move = poker.Move(poker.MoveType.FOLD)
                     await asyncio.sleep(0.1)
-                
-                if self.game.agressor == self.game.turn:
+                if self.game.agressor is self.game.players[self.game.turn]:
                     break
                 else:
                     await asyncio.sleep(1)
             
             self.game.next_phase()
+            self.set_info()
             
             await asyncio.sleep(1)
 
@@ -226,7 +231,7 @@ def admin_login(body: PasswordBody):
 
 class LoginBody(PasswordBody):
     username: str = Field(..., min_length=1, max_length=64)
-    
+
 @app.post("/admin-approve-register-requests")
 def admin_approve_register_requests(body: LoginBody):
     admin_password_hash = read_json_file(".admin-password-hash.json")["password"]

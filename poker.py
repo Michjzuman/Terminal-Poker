@@ -483,6 +483,8 @@ class MoveType(Enum):
     
     FOLD = "Fold"
     
+    REVEAL_CARDS = "Reveal Cards"
+    
     @property
     def requires_amount(self):
         return {
@@ -492,6 +494,7 @@ class MoveType(Enum):
             MoveType.RAISE: True,
             MoveType.RERAISE: True,
             MoveType.FOLD: False,
+            MoveType.REVEAL_CARDS: False
         }[self]
 
 @dataclass
@@ -509,36 +512,63 @@ class Player:
         self.game: "Game"
         self.move: Move = None
         self.winning_hand: Hand = None
+        self.cards_revealed: bool = False
     
     def do_move(self, move: Move):
         if move.type == MoveType.CHECK:
-            self.game.logs.append(f"{self.name} checked")
+            self.game.logs.append(f"{self.name} -")
+            self.game.written_logs.append(f"{self.name} checked")
             self.game.history.append(move)
             return True
         
         if move.type == MoveType.FOLD:
-            self.game.logs.append(f"{self.name} folded")
+            self.game.logs.append(f"{self.name} X")
+            self.game.written_logs.append(f"{self.name} folded")
             self.game.history.append(move)
             self.cards = []
             self.is_in = False
             return True
         
+        if move.type == MoveType.REVEAL_CARDS:
+            cards_short = f"{' '.join([f'{card.rank.value}{card.suit.symbol}' for card in self.cards])}"
+            self.game.logs.append(f"{self.name} = {cards_short}")
+            self.game.written_logs.append(f"{self.name} revealed {cards_short}")
+            self.game.history.append(move)
+            self.cards_revealed = True
+            return True
+        
         diff = self.game.bet - self.bet + move.amount
         
         log = {
-            MoveType.CALL: f"{self.name} called",
+            MoveType.CALL: f"{self.name} #",
+            MoveType.BET: f"{self.name} -> {move.amount}*",
+            MoveType.RAISE: f"{self.name} -> +{move.amount}*",
+            MoveType.RERAISE: f"{self.name} -> +{move.amount}*"
+        }[move.type]
+        
+        written_log = {
+            MoveType.CALL: f"{self.name} calles",
             MoveType.BET: f"{self.name} bet {move.amount}*",
             MoveType.RAISE: f"{self.name} raised by {move.amount}*",
             MoveType.RERAISE: f"{self.name} re-raised by {move.amount}*"
         }[move.type]
         
+        agressive = {
+            MoveType.CALL: False,
+            MoveType.BET: True,
+            MoveType.RAISE: True,
+            MoveType.RERAISE: True
+        }[move.type]
         
         if self.money >= diff:
             self.bet += diff
             self.money -= diff
             
             self.game.logs.append(log)
+            self.game.written_logs.append(written_log)
             self.game.history.append(move)
+            if agressive:
+                self.game.agressor = self
             
             return True
         else:
@@ -551,6 +581,9 @@ class Player:
         
         result = [MoveType.FOLD]
         
+        if self.game.phase == Phase.SHOWDOWN:
+            result.append(MoveType.REVEAL_CARDS)
+            return result
         
         to_call = max(0, self.game.bet - self.bet)
         
@@ -700,7 +733,7 @@ class Player:
         return result
 
 class Game:
-    def __init__(self, *players: Player, pool: int = 0, small_blind: int = 1, big_blind: int = 2):
+    def __init__(self, *players: Player, pool: int = 0, small_blind: int = 1, big_blind: int = 2, beginner: int = 0):
         self.stack: list[Card] = [
             Card(rank, suit)
             for rank in list(Rank)
@@ -716,13 +749,16 @@ class Game:
         self.history: list[Move] = []
         self.turn: int = 0
         self.logs: list[str] = []
+        self.written_logs: list[str] = []
         
         self.players: list[Player] = list(players)
         for player in self.players:
             player.game = self
         
+        self.beginner: Player = self.players[beginner]
+        
         self.phase: Phase = Phase.PREFLOP
-        self.agressor: int = 0
+        self.agressor: Player = self.players[beginner]
         self.pool: int = pool
     
     @property
@@ -750,6 +786,8 @@ class Game:
             
             self.last_full_raise = self.big_blind
             self.raises_in_round = 0
+            
+            self.agressor: Player = self.beginner
 
     def your_turn(self) -> None:
         for _ in range(len(self.players)):

@@ -25,6 +25,8 @@ import select
 
 import poker
 
+HOST_FILE = ".current-host.json"
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 def get_project_dir():
@@ -147,6 +149,20 @@ def read_json_file(path: str):
         with open(real_path, "r", encoding="utf-8") as file:
             return json.load(file)
     except FileNotFoundError:
+        return False
+
+def check_server(host: str):
+    if not host:
+        return False
+    if host[-1] == ".":
+        print("a")
+        return False
+    if "://" not in host:
+        host = "http://" + host
+    try:
+        status, data = get_json(host, "/")
+        return data["poker"] if data.get("ok") else False
+    except Exception:
         return False
 
 @contextmanager
@@ -281,19 +297,12 @@ class UI:
         self.text: list[str] = []
         self.reset_text()
         self.fps = 10
-        self.servers = {
-            "Local Server": "http://127.0.0.1:6767"
-        }
-        self.current_server: int = 0
+        self.current_host = ""
         
         self.settings: Settings = Settings()
         
         self.username: str = ""
         self.password: str = ""
-    
-    @property
-    def current_host(self):
-        return list(self.servers.values())[self.current_server]
 
     def git_update_state(self):
         code, stdout, _ = run_git_command("rev-parse", "--is-inside-work-tree")
@@ -550,24 +559,28 @@ class UI:
                 round(self.w / 2 - w / 2), y + i * 5, color
             )
     
-    def text_input(self, text: str, pointer: bool, y: int = 10, label: str = "", hidden: bool = False):
+    def text_input(self, text: str, pointer: bool, y: int = 10, label: str = "", hidden: bool = False, placeholder: str = ""):
         w = 30
         content = (
-            "•" * len(text[:(w - 5)])
-            if hidden else
             (
-                text[-(w - 5):]
-                if pointer else
-                text[:(w - 5)]
+                "•" * len(text[:(w - 5)])
+                if hidden else
+                (
+                    text[-(w - 5):]
+                    if pointer else
+                    text[:(w - 5)]
+                )
             )
+            if len(text) > 0 else
+            UI.Color.GRAY.value + placeholder + UI.Color.RESET.value
         ) + ("┃" if pointer else "")
         box = [] if label == "" else [f" {label}"]
         box += [
             f"┌{'─' * (w - 2)}┐",
-            f"│ {content}{' ' * (w - 4 - len(content))} │",
+            f"│ {content}{' ' * (w - 4 - UI.true_len(content))} │",
             f"└{'─' * (w - 2)}┘"
         ]
-        self.draw_object(box, round(self.w / 2 - max(len(line) for line in box) / 2), y)
+        self.draw_object(box, round(self.w / 2 - max(UI.true_len(line) for line in box) / 2), y)
     
     def back_button(self):
         self.draw_object(["< ESC"], 2, 1, UI.Color.GRAY)
@@ -613,6 +626,9 @@ class UI:
         
         cards_hidden = False
         
+        key_pressed = False
+        old_table = {}
+        
         table = {}
         me = {}
         possible_moves = []
@@ -620,6 +636,8 @@ class UI:
         my_cards = []
         my_turn: bool = False
         force_not_my_turn: bool = False
+        
+        zen_mode = False
         
         with cbreak_stdin():
             while True:
@@ -665,162 +683,180 @@ class UI:
                     
                     next_refresh = now + 0.5
                 
-                self.reset_text()
+                pointer_x %= max(1, len(possible_moves))
                 
-                if table != {}:
-                
-                    # === phase label ====================================
+                if old_table != table or key_pressed:
+                    key_pressed = False
+                    old_table = table
                     
-                    self.draw_object([
-                        table["info"]["phase"]
-                    ], 6, 2, UI.Color.GRAY)
+                    self.reset_text()
                     
-                    # === community cards ================================
+                    if table != {}:
                     
-                    self.draw_object(poker.print_cards_in_line(
-                        poker.Card.Back,
-                        *[
-                            poker.Card(
-                                poker.Rank(card["rank"]),
-                                poker.Suit(card["suit"])
-                            )
-                            for card in table["info"]["community_cards"]
-                        ],
-                        print_it = False,
-                        spacer = " ",
-                        design_option = poker.Card.DesignOption(self.settings.card_design),
-                        back_design_option = poker.Card.Back.DesignOption(self.settings.card_back_design)
-                    ), 5, 3, UI.Color.WHITE)
-                    
-                    # === pool ===========================================
-                    
-                    pool_value = table['info']['pool']
-                    if pool_value > 0:
-                        pool = f"{pool_value}*"
-                        self.draw_object([pool], 71 - round(len(pool) / 2), 5, UI.Color.GREEN)
-                    
-                    # === my cards =======================================
-                    
-                    self.draw_object(poker.print_cards_in_line(
-                        *[
-                            poker.Card.Back
-                            for _ in range(len(my_cards))
-                        ] if cards_hidden else [
-                            poker.Card(poker.Rank(card["rank"]), poker.Suit(card["suit"]))
-                            for card in my_cards
-                        ],
-                        print_it = False,
-                        design_option = poker.Card.DesignOption(self.settings.card_design),
-                        back_design_option = poker.Card.Back.DesignOption(self.settings.card_back_design)
-                    ), 5, 16, UI.Color.WHITE)
-                    
-                    # === possible moves =================================
-                    
-                    if my_turn and not force_not_my_turn:
-                        if amount_input:
-                            self.draw_object(
-                                ["".join([
-                                    UI.Color.GRAY.value,
-                                    "↑/↓ • Amount to ",
-                                    possible_moves[pointer_x].lower(), ": ",
-                                    UI.Color.GREEN.value,
-                                    str(amount), "*", (
-                                        "".join([
-                                            UI.Color.GRAY.value,
-                                            " (All In",
-                                            *([
-                                                ": ", UI.Color.GREEN.value,
-                                                str(me["money"]), "*",
-                                                UI.Color.GRAY.value
-                                            ] if amount > me["money"] else []),
-                                            ")"
-                                        ])
-                                        if amount >= me["money"] else ''
-                                    ), (
-                                        "".join([
-                                            UI.Color.GRAY.value,
-                                            " (At Least: ",
-                                            UI.Color.GREEN.value,
-                                            "1*",
-                                            UI.Color.GRAY.value,
-                                            ")"
-                                        ])
-                                        if amount < 1 else ''
-                                    )
-                                ])],
-                                5, 25
-                            )
-                        else:
-                            reminders = [
-                                *(
-                                    ["(All In)"]
-                                    if "Call" == possible_moves[pointer_x]
-                                    and me["bet"] + me["money"] <= table["info"]["bet"]
-                                    else []
-                                ),
-                                *(
-                                    ["".join([
-                                        "(Cost: ",
-                                        UI.Color.GREEN.value,
-                                        str(table["info"]["bet"] - me["bet"]), "*",
-                                        UI.Color.RESET.value + ")"
-                                    ])]
-                                    if "Call" == possible_moves[pointer_x]
-                                    else []
+                        # === phase label ====================================
+                        
+                        self.draw_object([
+                            table["info"]["phase"]
+                        ], 6, 2, UI.Color.GRAY)
+                        
+                        # === community cards ================================
+                        
+                        self.draw_object(poker.print_cards_in_line(
+                            poker.Card.Back,
+                            *[
+                                poker.Card(
+                                    poker.Rank(card["rank"]),
+                                    poker.Suit(card["suit"])
                                 )
-                            ]
-                            line = possible_moves + reminders
-                            for i, move in enumerate(line):
+                                for card in table["info"]["community_cards"]
+                            ],
+                            print_it = False,
+                            spacer = " ",
+                            design_option = poker.Card.DesignOption(self.settings.card_design),
+                            back_design_option = poker.Card.Back.DesignOption(self.settings.card_back_design)
+                        ), 5, 3, UI.Color.WHITE)
+                        
+                        # === pool ===========================================
+                        
+                        pool_value = table['info']['pool']
+                        if pool_value > 0:
+                            pool = f"{pool_value}*"
+                            self.draw_object([pool], 71 - round(len(pool) / 2), 5, UI.Color.GREEN)
+                        
+                        # === my cards =======================================
+                        
+                        self.draw_object(poker.print_cards_in_line(
+                            *[
+                                poker.Card.Back
+                                for _ in range(len(my_cards))
+                            ] if cards_hidden else [
+                                poker.Card(poker.Rank(card["rank"]), poker.Suit(card["suit"]))
+                                for card in my_cards
+                            ],
+                            print_it = False,
+                            design_option = poker.Card.DesignOption(self.settings.card_design),
+                            back_design_option = poker.Card.Back.DesignOption(self.settings.card_back_design)
+                        ), 5, 16, UI.Color.WHITE)
+                        
+                        # === possible moves =================================
+                        
+                        if my_turn and not force_not_my_turn:
+                            if amount_input:
                                 self.draw_object(
                                     ["".join([
-                                        *([
-                                            UI.Color.YELLOW.value, "["
-                                        ] if pointer_x == i else [" "]),
-                                        f"{move}",
-                                        *(["]"] if pointer_x == i else [" "]),
-                                        UI.Color.RESET.value
+                                        UI.Color.GRAY.value,
+                                        "↑/↓ • Amount to ",
+                                        possible_moves[pointer_x].lower(), ": ",
+                                        UI.Color.GREEN.value,
+                                        str(amount), "*", (
+                                            "".join([
+                                                UI.Color.GRAY.value,
+                                                " (All In",
+                                                *([
+                                                    ": ", UI.Color.GREEN.value,
+                                                    str(me["money"]), "*",
+                                                    UI.Color.GRAY.value
+                                                ] if amount > me["money"] else []),
+                                                ")"
+                                            ])
+                                            if amount >= me["money"] else ''
+                                        ), (
+                                            "".join([
+                                                UI.Color.GRAY.value,
+                                                " (At Least: ",
+                                                UI.Color.GREEN.value,
+                                                "1*",
+                                                UI.Color.GRAY.value,
+                                                ")"
+                                            ])
+                                            if amount < 1 else ''
+                                        )
                                     ])],
-                                    5 + sum([len(m) + 2 for m in line[:i]]),
-                                    25, UI.Color.WHITE
+                                    5, 25
                                 )
+                            else:
+                                reminders = [
+                                    *(
+                                        ["(All In)"]
+                                        if "Call" == possible_moves[pointer_x]
+                                        and me["bet"] + me["money"] <= table["info"]["bet"]
+                                        else []
+                                    ),
+                                    *(
+                                        ["".join([
+                                            "(Cost: ",
+                                            UI.Color.GREEN.value,
+                                            str(table["info"]["bet"] - me["bet"]), "*",
+                                            UI.Color.RESET.value + ")"
+                                        ])]
+                                        if "Call" == possible_moves[pointer_x]
+                                        else []
+                                    )
+                                ]
+                                line = possible_moves + reminders
+                                for i, move in enumerate(line):
+                                    self.draw_object(
+                                        ["".join([
+                                            *([
+                                                UI.Color.YELLOW.value, "["
+                                            ] if pointer_x == i else [" "]),
+                                            f"{move}",
+                                            *(["]"] if pointer_x == i else [" "]),
+                                            UI.Color.RESET.value
+                                        ])],
+                                        5 + sum([len(m) + 2 for m in line[:i]]),
+                                        25, UI.Color.WHITE
+                                    )
+                        
+                        # === players list ===================================
+                        
+                        players_list = []
+                        for i, player in enumerate(table["info"]["players"]):
+                            arrow = ">" if i == table["info"]["turn"] else " "
+                            green = UI.Color.GREEN.value if player["is_in"] else ""
+                            gray = "" if player["is_in"] else UI.Color.GRAY.value + UI.Color.STRIKETHROUGH.value
+                            reset = UI.Color.RESET.value if player["is_in"] else UI.Color.GRAY.value
+                            highlight = UI.Color.CYAN.value if player["name"] == self.username else ""
+                            cards = f' [{player["cards"]}]' if player["cards"] else ""
+                            players_list.append(
+                                f"{gray}{arrow} [{green}{player['bet']}*{reset}] {highlight}{player['name']}{reset}{cards} {green}{player['money']}*"
+                            )
+                        self.draw_object(("\n" * (2 if len(players_list) <= 5 else 1)).join(players_list).split("\n"), 30, 16)
+                        
+                        # === logs ===========================================
+                        
+                        logs = [
+                            f"{UI.Color.RED.value}{i + 1}. {log}{UI.Color.RESET.value}"
+                            for i, log in list(enumerate(table["info"]["logs"]))[-14:]
+                        ]
+                        self.draw_object(logs, 76 - max([UI.true_len(l) for l in logs] + [0]), max(11, 16 - max(0, len(logs) - 10)))
+                        
+                        # ====================================================
                     
-                    # === players list ===================================
-                    
-                    players_list = []
-                    for i, player in enumerate(table["info"]["players"]):
-                        arrow = ">" if i == table["info"]["turn"] else " "
-                        green = UI.Color.GREEN.value if player["is_in"] else ""
-                        gray = "" if player["is_in"] else UI.Color.GRAY.value + UI.Color.STRIKETHROUGH.value
-                        reset = UI.Color.RESET.value if player["is_in"] else UI.Color.GRAY.value
-                        highlight = UI.Color.CYAN.value if player["name"] == self.username else ""
-                        players_list.append(
-                            f"{gray}{arrow} [{green}{player['bet']}*{reset}] {highlight}{player['name']}{reset} {green}{player['money']}*"
-                        )
-                    self.draw_object(("\n" * (2 if len(players_list) <= 5 else 1)).join(players_list).split("\n"), 30, 16)
-                    
-                    # === logs ===========================================
-                    
-                    logs = [
-                        f"{UI.Color.RED.value}{i + 1}. {log}{UI.Color.RESET.value}"
-                        for i, log in list(enumerate(table["info"]["logs"]))[-14:]
-                    ]
-                    self.draw_object(logs, 76 - max([UI.true_len(l) for l in logs] + [0]), max(11, 16 - max(0, len(logs) - 10)))
-                    
-                    # ====================================================
-                
-                self.draw("←/→: Move • ENTER/SPACE: Select • H: Show/Hide Cards • Q: Quit")
+                    self.draw("" if zen_mode else "\n".join([
+                        *(
+                            ["logs symbols: [ ->: bet | -> +: raise | -: Check | #: Call | X: Fold ]"]
+                            if table != {} and len(table["info"]["logs"]) > 0
+                            else []
+                        ),
+                        "←/→: Move • ENTER/SPACE: Select • C: Show/Hide Cards • Q: Quit"
+                    ]))
                 
                 key = read_key_nonblocking(1 / self.fps)
                 
                 if key in ("q", "Q"):
                     exit()
+                elif key in ("z", "Z"):
+                    key_pressed = True
+                    zen_mode = not zen_mode
                 elif not amount_input and key == "RIGHT":
+                    key_pressed = True
                     pointer_x += 1
-                    pointer_x %= max(1, len(possible_moves))
                 elif not amount_input and key == "LEFT":
+                    key_pressed = True
                     pointer_x -= 1
-                    pointer_x %= max(1, len(possible_moves))
                 elif not amount_input and key in [" ", "ENTER"] and my_turn and not force_not_my_turn:
+                    key_pressed = True
                     if possible_moves[pointer_x] in ["Raise", "Re-Raise", "Bet"]:
                         amount_input = True
                     else:
@@ -834,6 +870,7 @@ class UI:
                         if do_move_data.get("ok"):
                             force_not_my_turn = True
                 elif amount_input and key in [" ", "ENTER"] and my_turn and not force_not_my_turn:
+                    key_pressed = True
                     try:
                         status, do_move_data = post_json(self.current_host, "/do_move", {
                             "username": self.username,
@@ -848,12 +885,16 @@ class UI:
                     except ValueError:
                         pass
                 elif amount_input and key == "ESC":
+                    key_pressed = True
                     amount_input = False
                 elif amount_input and key in ["UP", "RIGHT"]:
-                    amount = min(me["money"], amount + 1)
+                    key_pressed = True
+                    amount = amount + 1
                 elif amount_input and key in ["DOWN", "LEFT"]:
+                    key_pressed = True
                     amount = max(0, amount - 1)
                 elif key in ["h", "H", "c", "C"]:
+                    key_pressed = True
                     cards_hidden = not cards_hidden
     
     def table_lobby_view(self, id):
@@ -953,8 +994,73 @@ class UI:
                     elif key == "ESC":
                         return
     
-    def server_list_view(self):
-        pass
+    def change_server_view(self, first_time = True):
+        pointer = 0
+        text_input = ""
+        menu_len = 3
+        new_server_on = None
+        
+        with cbreak_stdin():
+            while True:
+                current_server_on = check_server(self.current_host)
+                
+                self.reset_text()
+                
+                if not first_time:
+                    self.back_button()
+                
+                self.label("Choose Server" if first_time else "Change Server", 5, self.settings.home_screen_color)
+                
+                if self.current_host != "":
+                    current_server_color = UI.Color.GREEN.value if current_server_on else UI.Color.RED.value
+                    self.label(
+                        f"current: {self.current_host.replace('http://', '')} {current_server_color}•",
+                        7, UI.Color.GRAY
+                    )
+                
+                self.text_input(text_input, pointer == 0, 10, "Server Host")
+                
+                if not new_server_on is None:
+                    y = 14
+                    if new_server_on:
+                        self.label("server found!", y, UI.Color.GREEN)
+                    else:
+                        self.label("not found", y, UI.Color.RED)
+                
+                self.menu(pointer - 1, ["Check", "Done"], UI.Color.CYAN, 15)
+                
+                self.draw("↑/↓: Move • ENTER: Confirm • ^C: Quit")
+                
+                while True:
+                    key = read_key()
+                    if key == "ESC" and not first_time:
+                        return
+                    elif key == "UP":
+                        pointer -= 1
+                        pointer %= menu_len
+                        break
+                    elif key in ["ENTER", " "] and pointer > 0:
+                        new_server_on = check_server(text_input)
+                        if pointer == 2:
+                            if new_server_on:
+                                if "://" not in text_input:
+                                    text_input = "http://" + text_input
+                                self.current_host = text_input
+                                write_json_file(HOST_FILE, {
+                                    "host": self.current_host
+                                })
+                                return
+                        break
+                    elif key in ["DOWN", "ENTER", "TAB"]:
+                        pointer += 1
+                        pointer %= menu_len
+                        break
+                    elif key == "BACKSPACE" and pointer < menu_len:
+                        text_input = text_input[:-1]
+                        break
+                    elif (key.isalpha() or key.isdigit() or not key.isalnum()) and len(key) == 1 and pointer == 0:
+                        text_input += key
+                        break
     
     def minigames_view(self):
         pass
@@ -1334,17 +1440,26 @@ class UI:
 
                 options = {
                     "Login": True,
-                    "Register": False
+                    "Register": False,
+                    "Change Server": "change_server"
                 }
                 if update_state.available:
                     options["Update"] = "update"
                 pointer %= len(options)
+                
+                server_on = check_server(self.current_host)
                 
                 self.poker_logo(round(self.w / 2) - 24, 4, self.settings.home_screen_color)
                 
                 if update_state.available:
                     commit_word = "commit" if update_state.behind == 1 else "commits"
                     self.label(f"{update_state.behind} new git {commit_word} available", 10, UI.Color.YELLOW)
+                
+                color = UI.Color.GREEN.value if server_on else UI.Color.RED.value
+                self.draw_object(
+                    [f"{self.current_host.replace('http://', '')} {color}•"],
+                    2, 1, UI.Color.GRAY
+                )
                 
                 self.label(status_text, 11, status_color)
                 
@@ -1354,9 +1469,11 @@ class UI:
                 
                 while True:
                     key = read_key()
-                    if key in (None, "q", "Q"):
+                    if key in ("q", "Q"):
                         exit()
-                    if key == "UP":
+                    elif key in ("r", "R"):
+                        break
+                    elif key == "UP":
                         pointer -= 1
                         pointer %= len(options)
                         break
@@ -1376,6 +1493,8 @@ class UI:
                             status_text = message
                             status_color = UI.Color.RED
                             update_state = self.git_update_state()
+                        elif selected_action == "change_server":
+                            self.change_server_view(False)
                         else:
                             login_result = self.login_register_form_view(selected_action)
                             if login_result:
@@ -1396,7 +1515,12 @@ class UI:
     
     def run(self):
         try:
-            self.intro_view()
+            host = read_json_file(HOST_FILE)
+            if host and check_server(host["host"]):
+                self.current_host = host["host"]
+            else:
+                self.change_server_view()
+            #self.intro_view()
             self.start_view()
         
         except KeyboardInterrupt:
