@@ -22,10 +22,12 @@ import os
 
 import poker
 
-WAIT_UNITL_ROUND_START = 5 # -> 20
+WAIT_UNITL_ROUND_START = 7 # -> 20
 HANDSHAKE_LIMIT = 60 # -> 5
 MOVE_TIME_LIMIT = 30 # to do
 USERS_LIST_FILE = ".server-users-list.json"
+
+USERNAME_MAX_LENGTH = 10
 
 table_counter = 0
 
@@ -82,7 +84,7 @@ class Table:
         
         self.info = {}
     
-    def set_info(self):
+    def set_info(self, ended: bool = False):
         self.info = {
             "pool": self.game.pool,
             "bet": self.game.bet,
@@ -106,7 +108,10 @@ class Table:
                 for player in self.players
             ],
             "logs": self.game.logs,
-            "winner": self.game.players.index(self.game.winners[0])
+            "winner": [
+                self.game.players.index(winner) if ended else None
+                for winner in self.game.winners
+            ]
         }
     
     async def run(self):
@@ -142,7 +147,7 @@ class Table:
                     await asyncio.sleep(1)
             
             self.game.next_phase()
-            self.set_info()
+            self.set_info(True)
             
             await asyncio.sleep(1)
 
@@ -265,6 +270,10 @@ def admin_reject_register_requests(body: LoginBody):
 
 @app.post("/register")
 def register(body: LoginBody):
+    if len(body.username) > USERNAME_MAX_LENGTH:
+        raise HTTPException(status_code=409, detail="Username too long")
+    if " " in body.username:
+        raise HTTPException(status_code=409, detail="Username contains spaces")
     new_user = User(body.username, hash_password(body.password))
     for user in users + register_requests:
         if user.name == new_user.name:

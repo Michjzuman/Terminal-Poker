@@ -537,7 +537,7 @@ class Player:
             self.cards_revealed = True
             return True
         
-        diff = self.game.bet - self.bet + move.amount
+        diff = self.game.bet - self.bet + (move.amount if move.type.requires_amount else 0)
         
         log = {
             MoveType.CALL: f"{self.name} #",
@@ -825,7 +825,7 @@ class Game:
         
         if sorted_hands:
             
-            possible_winners = self.players.copy()
+            possible_winners = [player for player in self.players if player.is_in]
             
             for hand in sorted_hands:
                 if hand.owner in possible_winners:

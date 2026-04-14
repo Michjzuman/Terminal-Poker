@@ -821,7 +821,7 @@ class UI:
                             players_list.append(
                                 f"{gray}{arrow} [{green}{player['bet']}*{reset}] {highlight}{player['name']}{reset}{cards} {green}{player['money']}*"
                             )
-                        self.draw_object(("\n" * (2 if len(players_list) <= 5 else 1)).join(players_list).split("\n"), 30, 16)
+                        self.draw_object(("\n" * (2 if len(players_list) <= 5 else 1)).join(players_list).split("\n"), 28, 16)
                         
                         # === logs ===========================================
                         
@@ -897,10 +897,104 @@ class UI:
                     key_pressed = True
                     cards_hidden = not cards_hidden
     
+    def podium_view(self, id):
+        next_refresh = 0.0
+        last_phase = ""
+        
+        cards_hidden = False
+        
+        key_pressed = False
+        old_table = {}
+        
+        table = {}
+        pointer = 0
+        
+        my_cards = []
+        
+        zen_mode = False
+        
+        with cbreak_stdin():
+            while True:
+                now = time.monotonic()
+                
+                if now >= next_refresh:
+                    try:
+                        _, data = get_json(self.current_host, "/get_tables")
+                        if data.get("ok"):
+                            for t in data["tables"]:
+                                if t["id"] == id and t["active"]:
+                                    table = t
+                            if "phase" in list(table["info"].keys()) and last_phase != table["info"]["phase"]:
+                                _, my_cards_data = post_json(self.current_host, "/my_cards", {
+                                    "username": self.username,
+                                    "password": self.password,
+                                    "table_id": id
+                                })
+                                if my_cards_data.get("ok"):
+                                    my_cards = my_cards_data["cards"]
+                                last_phase = table["info"]["phase"]
+                    
+                        post_json(self.current_host, "/handshake", {
+                            "username": self.username,
+                            "password": self.password,
+                            "table_id": id
+                        })
+                    
+                    except TypeError or KeyError:
+                        pass
+                    
+                    next_refresh = now + 0.5
+                
+                if old_table != table or key_pressed:
+                    key_pressed = False
+                    old_table = table
+                    
+                    self.reset_text()
+                    
+                    if table != {}:
+                        
+                        pool_value = table['info']['pool']
+                        if pool_value > 0:
+                            pool = f"{pool_value}*"
+                            self.draw_object([pool], 71 - round(len(pool) / 2), 5, UI.Color.GREEN)
+                        
+                        # === players list ===================================
+                        
+                        players_list = []
+                        for i, player in enumerate(table["info"]["players"]):
+                            green = UI.Color.GREEN.value if player["is_in"] else ""
+                            gray = "" if player["is_in"] else UI.Color.GRAY.value + UI.Color.STRIKETHROUGH.value
+                            reset = UI.Color.RESET.value if player["is_in"] else UI.Color.GRAY.value
+                            highlight = UI.Color.CYAN.value if player["name"] == self.username else ""
+                            cards = f' [{player["cards"]}]' if player["cards"] else ""
+                            players_list.append(
+                                f"{gray} [{green}{player['bet']}*{reset}] {highlight}{player['name']}{reset}{cards} {green}{player['money']}*"
+                            )
+                        self.draw_object(("\n" * (2 if len(players_list) <= 5 else 1)).join(players_list).split("\n"), 28, 16)
+                        
+                        # ====================================================
+                    
+                    self.draw("" if zen_mode else "\n".join([
+                        *(
+                            ["logs symbols: [ ->: bet | -> +: raise | -: Check | #: Call | X: Fold ]"]
+                            if table != {} and len(table["info"]["logs"]) > 0
+                            else []
+                        ),
+                        "←/→: Move • ENTER/SPACE: Select • C: Show/Hide Cards • Q: Quit"
+                    ]))
+                
+                key = read_key_nonblocking(1 / self.fps)
+                
+                if key in ("q", "Q"):
+                    exit()
+    
     def table_lobby_view(self, id):
         next_refresh = 0.0
         
         cards_hidden = False
+        
+        table = {}
+        old_table = {}
         
         with cbreak_stdin():
             while True:
@@ -922,17 +1016,19 @@ class UI:
                     
                     next_refresh = now + 0.5
                 
-                self.reset_text()
-                
-                self.back_button()
-                
-                self.label("Countdown", 8, UI.Color.GRAY)
-                self.label(str(table['count_down']), 10, UI.Color.YELLOW)
-                
-                self.label("Players", 14, UI.Color.GRAY)
-                self.label(str(table["players"]), 16, UI.Color.CYAN)
-                
-                self.draw("Q: Quit")
+                if old_table != table:
+                    old_table = table
+                    self.reset_text()
+                    
+                    self.back_button()
+                    
+                    self.label("Countdown", 8, UI.Color.GRAY)
+                    self.label(str(table['count_down']), 10, UI.Color.YELLOW)
+                    
+                    self.label("Players", 14, UI.Color.GRAY)
+                    self.label(str(table["players"]), 16, UI.Color.CYAN)
+                    
+                    self.draw("Q: Quit")
                 
                 key = read_key_nonblocking(1 / self.fps)
                 
@@ -1399,8 +1495,13 @@ class UI:
                             "username": text_inputs["Username"],
                             "password": text_inputs["Password"]
                         })
-                        print(status, data)
-                        if data["ok"]:
+                        if status == 409:
+                            if " " in text_inputs["Username"]:
+                                error = "username cannot contain spaces"
+                            else:
+                                error = "username is too long"
+                            break
+                        if data.get("ok"):
                             self.username = text_inputs["Username"]
                             self.password = text_inputs["Password"]
                             approved = self.wait_for_registration_approval_view()
