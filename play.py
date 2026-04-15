@@ -90,30 +90,10 @@ def last_output_line(stdout: str, stderr: str, fallback: str):
             return text.splitlines()[-1]
     return fallback
 
-def normalize_host(host: str):
-    if not host:
-        return ""
-    if host.startswith("http://") or host.startswith("https://"):
-        return host.rstrip("/")
-    return f"http://{host.rstrip('/')}"
-
-def response_error_message(status: int, data: dict, fallback: str):
-    if status == 0:
-        return data.get("error") or fallback
-
-    detail = data.get("detail") or data.get("message") or data.get("error")
-    if detail:
-        return f"{fallback}: {detail}"
-
-    if status >= 400:
-        return f"{fallback} (HTTP {status})"
-
-    return fallback
-
 def post_json(host: str, path: str, data: dict) -> tuple[int, dict]:
     body = json.dumps(data).encode("utf-8")
     req = urllib.request.Request(
-        url=normalize_host(host) + path,
+        url=host + path,
         data=body,
         headers={
             "Content-Type": "application/json",
@@ -137,7 +117,7 @@ def post_json(host: str, path: str, data: dict) -> tuple[int, dict]:
 
 def get_json(host: str, path: str, headers: dict = None) -> tuple[int, dict]:
     req = urllib.request.Request(
-        url=normalize_host(host) + path,
+        url=host + path,
         headers={
             "Accept": "application/json",
             **(headers or {})
@@ -172,9 +152,13 @@ def read_json_file(path: str):
         return False
 
 def check_server(host: str):
-    host = normalize_host(host)
-    if not host or host.endswith("."):
+    if not host:
         return False
+    if host[-1] == ".":
+        print("a")
+        return False
+    if "://" not in host:
+        host = "http://" + host
     try:
         status, data = get_json(host, "/")
         return data["poker"] if data.get("ok") else False
@@ -358,208 +342,6 @@ class UI:
 
     def restart_application(self):
         os.execv(sys.executable, [sys.executable, PLAY_SCRIPT_PATH, *sys.argv[1:]])
-
-    def api_error(self, status: int, data: dict, fallback: str):
-        return response_error_message(status, data, fallback)
-
-    def parse_card(self, raw_card):
-        if isinstance(raw_card, poker.Card):
-            return raw_card
-        if not isinstance(raw_card, dict):
-            return None
-
-        try:
-            return poker.Card(
-                poker.Rank(raw_card["rank"]),
-                poker.Suit(raw_card["suit"])
-            )
-        except (KeyError, ValueError, TypeError):
-            return None
-
-    def cards_from_payload(self, raw_cards):
-        cards = []
-        for raw_card in raw_cards or []:
-            card = self.parse_card(raw_card)
-            if card is not None:
-                cards.append(card)
-        return cards
-
-    def cards_text(self, raw_cards):
-        cards = self.cards_from_payload(raw_cards)
-        if not cards:
-            return ""
-        return " ".join(
-            f"{card.rank.value}{card.suit.symbol}"
-            for card in cards
-        )
-
-    def hand_text(self, hand_data):
-        if hand_data is None:
-            return ""
-        if isinstance(hand_data, str):
-            return hand_data
-        if isinstance(hand_data, (list, tuple)):
-            if hand_data and isinstance(hand_data[0], dict):
-                cards_text = self.cards_text(hand_data)
-                if cards_text:
-                    return cards_text
-            return ", ".join(str(part) for part in hand_data)
-        if isinstance(hand_data, dict):
-            pieces = []
-            for key in ["name", "rank", "label", "type"]:
-                if hand_data.get(key):
-                    pieces.append(str(hand_data[key]))
-                    break
-            cards_text = self.cards_text(
-                hand_data.get("cards")
-                or hand_data.get("best_cards")
-                or hand_data.get("hand_cards")
-            )
-            if cards_text:
-                pieces.append(cards_text)
-            if hand_data.get("tiebreaker") is not None:
-                pieces.append(str(hand_data["tiebreaker"]))
-            if hand_data.get("points") is not None and not pieces:
-                pieces.append(str(hand_data["points"]))
-            return " | ".join(pieces) if pieces else str(hand_data)
-        return str(hand_data)
-
-    def player_name_from_ref(self, ref, players: list[dict]):
-        if isinstance(ref, int):
-            if 0 <= ref < len(players):
-                player = players[ref]
-                if isinstance(player, dict):
-                    return player.get("name", str(ref))
-                return getattr(player, "name", str(ref))
-            return str(ref)
-        if isinstance(ref, dict):
-            return (
-                ref.get("name")
-                or ref.get("player")
-                or ref.get("username")
-                or str(ref)
-            )
-        return str(ref)
-
-    def table_status_label(self, table: dict):
-        info = table.get("info", {}) if isinstance(table, dict) else {}
-        if info.get("ended"):
-            return "(result)"
-        if table.get("active"):
-            return "(playing)"
-        return "(waiting)"
-
-    def flash_message(self, message: str, color=None, note: str = "", duration: float = 1.0):
-        if color is None:
-            color = UI.Color.YELLOW
-        self.reset_text()
-        self.label(message, 13, color)
-        if note:
-            self.draw(note)
-        else:
-            self.draw(" ")
-        time.sleep(duration)
-
-    def fetch_bankroll(self):
-        status, data = get_json(self.current_host, "/money")
-        if status != 200 or not data.get("ok"):
-            return None, self.api_error(status, data, "could not load bankroll")
-
-        players = data.get("players", {})
-        if self.username not in players:
-            return None, "bankroll unavailable"
-
-        return players[self.username], ""
-
-    def leave_table_request(self, table_id: int):
-        status, data = post_json(self.current_host, "/leave_table", {
-            "username": self.username,
-            "password": self.password,
-            "table_id": table_id
-        })
-
-        if data.get("ok"):
-            return True, ""
-
-        if status in (404, 405):
-            return True, "leave-table is not available on this server yet"
-
-        return False, self.api_error(status, data, "could not leave table")
-
-    def payout_lines(self, payouts, players=None):
-        players = players or []
-        lines = []
-        for payout in payouts or []:
-            if isinstance(payout, dict):
-                player_ref = payout.get("player") or payout.get("winner") or payout.get("name")
-                amount = payout.get("amount")
-            elif isinstance(payout, (list, tuple)) and len(payout) >= 2:
-                player_ref = payout[0]
-                amount = payout[1]
-            else:
-                player_ref = str(payout)
-                amount = None
-
-            name = self.player_name_from_ref(player_ref, players)
-            if amount is None:
-                lines.append(str(payout))
-            else:
-                lines.append(f"{name} +{amount}*")
-        return lines
-
-    def round_over_lines(self, info: dict):
-        players = info.get("players", [])
-        lines = []
-
-        winner_names = info.get("winner_names", [])
-        winners = (
-            winner_names if len(winner_names) > 0 else
-            [
-                self.player_name_from_ref(winner, players)
-                for winner in info.get("winner", [])
-                if winner is not None
-            ]
-        )
-        if winners:
-            lines.append("Winners: " + ", ".join(winners))
-
-        winning_hand = self.hand_text(info.get("winning_hand"))
-        if winning_hand:
-            lines.append("Winning hand: " + winning_hand)
-
-        pots = info.get("pots", [])
-        if pots:
-            for idx, pot in enumerate(pots, start=1):
-                if not isinstance(pot, dict):
-                    lines.append(f"Pot {idx}: {pot}")
-                    continue
-
-                pot_line = f"Pot {idx}: {pot.get('amount', 0)}*"
-                lines.append(pot_line)
-
-                pot_winners = pot.get("winners") or pot.get("winner") or []
-                if not isinstance(pot_winners, list):
-                    pot_winners = [pot_winners]
-                pot_winner_names = [
-                    self.player_name_from_ref(winner, players)
-                    for winner in pot_winners
-                    if winner is not None
-                ]
-                if pot_winner_names:
-                    lines.append("  Winners: " + ", ".join(pot_winner_names))
-
-                pot_hand = self.hand_text(pot.get("winning_hand"))
-                if pot_hand:
-                    lines.append("  Hand: " + pot_hand)
-
-                pot_payouts = self.payout_lines(pot.get("payouts", []), players)
-                if pot_payouts:
-                    lines.append("  Payouts: " + ", ".join(pot_payouts))
-        else:
-            payout_lines = self.payout_lines(info.get("payouts", []), players)
-            lines.extend(payout_lines if payout_lines else ["No payout"])
-
-        return lines[:12]
     
     class Color(Enum):
         RESET = "\033[0m"
@@ -663,71 +445,6 @@ class UI:
         y: int
         color: "UI.Color" = None
 
-    def truncate_plain(self, text: str, width: int):
-        text = str(text)
-        if width <= 0:
-            return ""
-        if UI.true_len(text) <= width:
-            return text
-        if width <= 3:
-            return text[:width]
-        return text[:width - 3] + "..."
-
-    def clip_styled_text(self, text: str, width: int):
-        if width <= 0:
-            return ""
-
-        result = []
-        visible = 0
-        i = 0
-        used_style = False
-
-        while i < len(text) and visible < width:
-            if text[i] == "\x1b":
-                used_style = True
-                j = i + 1
-                while j < len(text):
-                    if "@" <= text[j] <= "~":
-                        j += 1
-                        break
-                    j += 1
-                result.append(text[i:j])
-                i = j
-                continue
-
-            result.append(text[i])
-            visible += 1
-            i += 1
-
-        if used_style:
-            result.append(UI.Color.RESET.value)
-
-        return "".join(result)
-
-    def draw_lines_in_region(self, lines, x: int, y: int, width: int, height: int, color=None):
-        if width <= 0 or height <= 0:
-            return
-
-        clipped_lines = [
-            self.truncate_plain(line, width)
-            for line in list(lines)[:height]
-        ]
-        self.draw_object(clipped_lines, x, y, color)
-
-    def render_cards_block(self, cards, x: int, y: int):
-        self.draw_object(
-            poker.print_cards_in_line(
-                *cards,
-                print_it=False,
-                spacer=" ",
-                design_option=poker.Card.DesignOption(self.settings.card_design),
-                back_design_option=poker.Card.Back.DesignOption(self.settings.card_back_design)
-            ),
-            x,
-            y,
-            UI.Color.WHITE
-        )
-
     def draw_object(self, *args, **kwargs):
         obj = UI.Object(*args, **kwargs)
         color = obj.color
@@ -735,23 +452,16 @@ class UI:
             color = UI.Color.WHITE
         
         for i, line in enumerate(obj.text):
-            target_y = obj.y + i
-            if not (1 <= target_y <= self.h):
-                continue
+            
+            if obj.y + i < self.h:
+            
+                plus = UI.true_len(self.text[obj.y + i], True)
 
-            visible_width = self.w - obj.x + 1
-            if visible_width <= 0:
-                continue
-
-            clipped_line = self.clip_styled_text(line, visible_width)
-            plus = UI.true_len(self.text[target_y], True)
-            visible_len = min(UI.true_len(clipped_line), visible_width)
-
-            self.text[target_y] = (
-                "".join(list(self.text[target_y])[:obj.x + plus]) +
-                color.value + clipped_line + self.Color.RESET.value +
-                "".join(list(self.text[target_y])[obj.x + plus + visible_len:])
-            )
+                self.text[obj.y + i] = (
+                    "".join(list(self.text[obj.y + i])[:obj.x + plus]) +
+                    color.value + line + self.Color.RESET.value +
+                    "".join(list(self.text[obj.y + i])[obj.x + plus + UI.true_len(line):])
+                )
 
     def poker_logo(self, x, y, color):
         self.draw_object(
@@ -805,32 +515,20 @@ class UI:
     def label(self, text, y, color = None):
         if color is None:
             color = UI.Color.WHITE
-        text = self.truncate_plain(text, self.w - 4)
         self.draw_object(
             [text],
-            max(1, round(self.w / 2 - UI.true_len(text) / 2)), y,
+            round(self.w / 2 - len(text) / 2), y,
             color
         )
 
-    def menu(self, pointer, options, color, y = 13, w = 30, selection = None, disabled=None):
-        disabled = set(disabled or [])
+    def menu(self, pointer, options, color, y = 13, w = 30, selection = None):
         for i, option in enumerate(options):
-            is_disabled = i in disabled
             text = option + (" (current)" if i == selection else "")
-            if is_disabled:
-                text += " (disabled)"
             
             half = (w - 10 - UI.true_len(text)) / 2
-            if is_disabled:
-                c = UI.Color.GRAY
-                prefix = "x"
-                text_style = UI.Color.GRAY.value + UI.Color.STRIKETHROUGH.value
-            else:
-                c = color if pointer == i else UI.Color.GRAY
-                prefix = "*" if selection == i else " "
-                text_style = UI.Color.BOLD.value
-
-            center = f"{prefix} {' ' * math.floor(half)}{text_style}{text}{UI.Color.RESET.value}{c.value}{' ' * math.ceil(half)} {prefix}"
+            c = color if pointer == i else UI.Color.GRAY
+            star = "*" if selection == i else " "
+            center = f"{star} {' ' * math.floor(half)}{UI.Color.BOLD.value}{text}{UI.Color.RESET.value}{c.value}{' ' * math.ceil(half)} {star}"
             self.draw_object(
                 [
                     f"╭{'─' * (w - 2)}╮",
@@ -930,13 +628,10 @@ class UI:
         
         key_pressed = False
         old_table = {}
-        old_status_text = ""
         
         table = {}
         me = {}
         possible_moves = []
-        status_text = ""
-        status_color = UI.Color.RED
         
         my_cards = []
         my_turn: bool = False
@@ -950,207 +645,202 @@ class UI:
                 
                 if now >= next_refresh:
                     try:
-                        status, data = get_json(self.current_host, "/get_tables")
-                        if not data.get("ok"):
-                            status_text = self.api_error(status, data, "could not refresh table")
-                            status_color = UI.Color.RED
-                        else:
-                            selected_table = next((t for t in data.get("tables", []) if t["id"] == id), None)
-                            if selected_table is None:
-                                self.flash_message("table not found", UI.Color.RED, "Returning to table list...")
-                                return True
-                            if not selected_table["active"]:
-                                return self.table_lobby_view(id)
-                            if selected_table["info"].get("ended"):
-                                return self.podium_view(id)
-
-                            table = selected_table
-                            status_text = ""
-                            status_color = UI.Color.RED
-                            me = {}
-                            possible_moves = []
-                            my_turn = False
-
-                            bankroll, bankroll_error = self.fetch_bankroll()
-                            if bankroll_error:
-                                status_text = bankroll_error
-                                status_color = UI.Color.RED
-
-                            players = table["info"].get("players", [])
-                            for i, player in enumerate(players):
-                                if player["name"] == self.username:
-                                    me = player
-                                    possible_moves = player.get("possible_moves", [])
-                                    if player.get("is_turn") or table["info"].get("turn") == i:
-                                        if not my_turn:
-                                            force_not_my_turn = False
-                                        my_turn = True
-                                    break
-
+                        _, data = get_json(self.current_host, "/get_tables")
+                        if data.get("ok"):
+                            for t in data["tables"]:
+                                if t["id"] == id and t["active"]:
+                                    table = t
+                                    if "players" in list(t["info"].keys()):
+                                        for i, player in enumerate(t["info"]["players"]):
+                                            if player["name"] == self.username:
+                                                me = player
+                                                possible_moves = me["possible_moves"]
+                                                if t["info"]["turn"] == i:
+                                                    if not my_turn:
+                                                        force_not_my_turn = False
+                                                    my_turn = True
+                                                else:
+                                                    my_turn = False
+                                                break
                             if "phase" in list(table["info"].keys()) and last_phase != table["info"]["phase"]:
-                                my_cards_status, my_cards_data = post_json(self.current_host, "/my_cards", {
+                                _, my_cards_data = post_json(self.current_host, "/my_cards", {
                                     "username": self.username,
                                     "password": self.password,
                                     "table_id": id
                                 })
                                 if my_cards_data.get("ok"):
-                                    my_cards = my_cards_data.get("cards", [])
-                                else:
-                                    status_text = self.api_error(my_cards_status, my_cards_data, "could not load your cards")
-                                    status_color = UI.Color.RED
+                                    my_cards = my_cards_data["cards"]
                                 last_phase = table["info"]["phase"]
-
-                            handshake_status, handshake_data = post_json(self.current_host, "/handshake", {
-                                "username": self.username,
-                                "password": self.password,
-                                "table_id": id
-                            })
-                            if not handshake_data.get("ok"):
-                                status_text = self.api_error(handshake_status, handshake_data, "could not keep table session alive")
-                                status_color = UI.Color.RED
                     
-                    except Exception as error:
-                        status_text = str(error)
-                        status_color = UI.Color.RED
+                        post_json(self.current_host, "/handshake", {
+                            "username": self.username,
+                            "password": self.password,
+                            "table_id": id
+                        })
+                    
+                    except TypeError or KeyError:
+                        pass
                     
                     next_refresh = now + 0.5
                 
                 pointer_x %= max(1, len(possible_moves))
                 
-                if old_table != table or key_pressed or old_status_text != status_text:
+                if old_table != table or key_pressed:
                     key_pressed = False
                     old_table = table
-                    old_status_text = status_text
                     
                     self.reset_text()
                     
                     if table != {}:
-                        info = table["info"]
-                        to_call = me.get("to_call", max(0, info.get("bet", 0) - me.get("bet", 0)))
-                        minimum_raise_amount = me.get("minimum_raise_amount", 0)
-                        maximum_raise_amount = me.get("maximum_raise_amount", 0)
-                        pool_value = info.get("pool", 0)
-                        turn_name = info.get("turn_name") or "-"
-
-                        bankroll, bankroll_error = self.fetch_bankroll()
-                        if bankroll is not None:
-                            self.draw_lines_in_region(
-                                [f"{self.username} {bankroll}*"],
-                                2, 1, 24, 1, UI.Color.GREEN
-                            )
-                        elif bankroll_error:
-                            self.draw_lines_in_region(
-                                [bankroll_error],
-                                2, 1, 24, 1, UI.Color.RED
-                            )
-
-                        self.draw_lines_in_region(
-                            [f"Table {id + 1}"],
-                            64, 1, 12, 1, UI.Color.GRAY
-                        )
-                        self.label(
-                            f"{info['phase']} | Turn: {turn_name} | Pot: {pool_value}*",
-                            2,
-                            UI.Color.GRAY
-                        )
-
-                        community_cards = self.cards_from_payload(info.get("community_cards", []))[:5]
-                        board_cards = community_cards + [poker.Card.Back] * max(0, 5 - len(community_cards))
-                        self.render_cards_block(board_cards, 3, 3)
-
-                        log_lines = ["Logs"]
-                        log_lines.extend(
-                            str(log)
-                            for log in info.get("logs", [])[-7:]
-                        )
-                        self.draw_lines_in_region(log_lines, 55, 3, 22, 8, UI.Color.GRAY)
-
-                        self.draw_lines_in_region(["Players"], 2, 11, 12, 1, UI.Color.GRAY)
-                        player_cells = []
-                        for i, player in enumerate(info.get("players", [])):
-                            marker = ">" if i == info.get("turn") else ("x" if not player.get("is_in") else " ")
-                            self_marker = "*" if player.get("name") == self.username else ""
-                            role_tags = []
-                            if i == info.get("button_index"):
-                                role_tags.append("BTN")
-                            if i == info.get("small_blind_index"):
-                                role_tags.append("SB")
-                            if i == info.get("big_blind_index"):
-                                role_tags.append("BB")
-                            if player.get("is_all_in"):
-                                role_tags.append("AI")
-                            if player.get("cards"):
-                                role_tags.append("shown")
-                            roles = f" {'/'.join(role_tags)}" if role_tags else ""
-                            player_cells.append(
-                                f"{marker}{self_marker}{player.get('name', '?')}{roles} [{player.get('bet', 0)}*|{player.get('money', 0)}*]"
-                            )
-
-                        player_rows = []
-                        for row in range(4):
-                            left = self.truncate_plain(player_cells[row], 35) if row < len(player_cells) else ""
-                            right_index = row + 4
-                            right = self.truncate_plain(player_cells[right_index], 35) if right_index < len(player_cells) else ""
-                            if right:
-                                player_rows.append(f"{left:<35}  {right}")
-                            else:
-                                player_rows.append(left)
-                        self.draw_lines_in_region(player_rows, 2, 12, 74, 4, UI.Color.WHITE)
-
-                        info_line = (
-                            f"To call: {to_call}*   "
-                            f"Min raise: {minimum_raise_amount}*   "
-                            f"Max raise: {maximum_raise_amount}*   "
-                            f"Stack: {me.get('money', 0)}*"
-                        )
-                        if me.get("is_all_in"):
-                            info_line += "   ALL-IN"
-                        self.draw_lines_in_region([info_line], 2, 16, 74, 1, UI.Color.CYAN)
-
-                        own_cards = self.cards_from_payload(my_cards)[:2]
-                        if cards_hidden:
-                            own_cards = [poker.Card.Back, poker.Card.Back]
-                        else:
-                            own_cards = own_cards + [poker.Card.Back] * max(0, 2 - len(own_cards))
-                        self.render_cards_block(own_cards, 3, 17)
-
+                    
+                        # === phase label ====================================
+                        
+                        self.draw_object([
+                            table["info"]["phase"]
+                        ], 6, 2, UI.Color.GRAY)
+                        
+                        # === community cards ================================
+                        
+                        self.draw_object(poker.print_cards_in_line(
+                            poker.Card.Back,
+                            *[
+                                poker.Card(
+                                    poker.Rank(card["rank"]),
+                                    poker.Suit(card["suit"])
+                                )
+                                for card in table["info"]["community_cards"]
+                            ],
+                            print_it = False,
+                            spacer = " ",
+                            design_option = poker.Card.DesignOption(self.settings.card_design),
+                            back_design_option = poker.Card.Back.DesignOption(self.settings.card_back_design)
+                        ), 5, 3, UI.Color.WHITE)
+                        
+                        # === pool ===========================================
+                        
+                        pool_value = table['info']['pool']
+                        if pool_value > 0:
+                            pool = f"{pool_value}*"
+                            self.draw_object([pool], 71 - round(len(pool) / 2), 5, UI.Color.GREEN)
+                        
+                        # === my cards =======================================
+                        
+                        self.draw_object(poker.print_cards_in_line(
+                            *[
+                                poker.Card.Back
+                                for _ in range(len(my_cards))
+                            ] if cards_hidden else [
+                                poker.Card(poker.Rank(card["rank"]), poker.Suit(card["suit"]))
+                                for card in my_cards
+                            ],
+                            print_it = False,
+                            design_option = poker.Card.DesignOption(self.settings.card_design),
+                            back_design_option = poker.Card.Back.DesignOption(self.settings.card_back_design)
+                        ), 5, 16, UI.Color.WHITE)
+                        
+                        # === possible moves =================================
+                        
                         if my_turn and not force_not_my_turn:
                             if amount_input:
-                                minimum_amount = max(1, minimum_raise_amount)
-                                maximum_amount = max(minimum_amount, maximum_raise_amount)
-                                action_line = (
-                                    f"Amount for {possible_moves[pointer_x].lower()}: {amount}* "
-                                    f"[min {minimum_amount}* | max {maximum_amount}*]"
+                                self.draw_object(
+                                    ["".join([
+                                        UI.Color.GRAY.value,
+                                        "↑/↓ • Amount to ",
+                                        possible_moves[pointer_x].lower(), ": ",
+                                        UI.Color.GREEN.value,
+                                        str(amount), "*", (
+                                            "".join([
+                                                UI.Color.GRAY.value,
+                                                " (All In",
+                                                *([
+                                                    ": ", UI.Color.GREEN.value,
+                                                    str(me["money"]), "*",
+                                                    UI.Color.GRAY.value
+                                                ] if amount > me["money"] else []),
+                                                ")"
+                                            ])
+                                            if amount >= me["money"] else ''
+                                        ), (
+                                            "".join([
+                                                UI.Color.GRAY.value,
+                                                " (At Least: ",
+                                                UI.Color.GREEN.value,
+                                                "1*",
+                                                UI.Color.GRAY.value,
+                                                ")"
+                                            ])
+                                            if amount < 1 else ''
+                                        )
+                                    ])],
+                                    5, 25
                                 )
                             else:
-                                segments = []
-                                for i, move in enumerate(possible_moves):
-                                    label = move
-                                    if move == "Call":
-                                        label += f" {to_call}*"
-                                    elif move in ["Raise", "Re-Raise", "Bet"]:
-                                        label += f" min {max(1, minimum_raise_amount)}*"
-                                    label = f"[{label}]" if pointer_x == i else label
-                                    segments.append(label)
-                                action_line = "   ".join(segments) if segments else "No legal moves"
-                        else:
-                            action_line = f"Waiting for turn: {turn_name}"
-
-                        self.draw_lines_in_region([action_line], 2, 25, 74, 1, UI.Color.WHITE)
-                        if status_text:
-                            self.draw_lines_in_region([status_text], 2, 26, 74, 1, status_color)
-                        else:
-                            self.draw_lines_in_region(
-                                ["C: show/hide cards"],
-                                2, 26, 74, 1, UI.Color.GRAY
+                                reminders = [
+                                    *(
+                                        ["(All In)"]
+                                        if "Call" == possible_moves[pointer_x]
+                                        and me["bet"] + me["money"] <= table["info"]["bet"]
+                                        else []
+                                    ),
+                                    *(
+                                        ["".join([
+                                            "(Cost: ",
+                                            UI.Color.GREEN.value,
+                                            str(table["info"]["bet"] - me["bet"]), "*",
+                                            UI.Color.RESET.value + ")"
+                                        ])]
+                                        if "Call" == possible_moves[pointer_x]
+                                        else []
+                                    )
+                                ]
+                                line = possible_moves + reminders
+                                for i, move in enumerate(line):
+                                    self.draw_object(
+                                        ["".join([
+                                            *([
+                                                UI.Color.YELLOW.value, "["
+                                            ] if pointer_x == i else [" "]),
+                                            f"{move}",
+                                            *(["]"] if pointer_x == i else [" "]),
+                                            UI.Color.RESET.value
+                                        ])],
+                                        5 + sum([len(m) + 2 for m in line[:i]]),
+                                        25, UI.Color.WHITE
+                                    )
+                        
+                        # === players list ===================================
+                        
+                        players_list = []
+                        for i, player in enumerate(table["info"]["players"]):
+                            arrow = ">" if i == table["info"]["turn"] else " "
+                            green = UI.Color.GREEN.value if player["is_in"] else ""
+                            gray = "" if player["is_in"] else UI.Color.GRAY.value + UI.Color.STRIKETHROUGH.value
+                            reset = UI.Color.RESET.value if player["is_in"] else UI.Color.GRAY.value
+                            highlight = UI.Color.CYAN.value if player["name"] == self.username else ""
+                            cards = f' [{player["cards"]}]' if player["cards"] else ""
+                            players_list.append(
+                                f"{gray}{arrow} [{green}{player['bet']}*{reset}] {highlight}{player['name']}{reset}{cards} {green}{player['money']}*"
                             )
+                        self.draw_object(("\n" * (2 if len(players_list) <= 5 else 1)).join(players_list).split("\n"), 28, 16)
+                        
+                        # === logs ===========================================
+                        
+                        logs = [
+                            f"{UI.Color.RED.value}{i + 1}. {log}{UI.Color.RESET.value}"
+                            for i, log in list(enumerate(table["info"]["logs"]))[-14:]
+                        ]
+                        self.draw_object(logs, 76 - max([UI.true_len(l) for l in logs] + [0]), max(11, 16 - max(0, len(logs) - 10)))
+                        
+                        # ====================================================
                     
-                    controls = (
-                        "↑/↓ adjust • ENTER confirm • ESC cancel • Q quit"
-                        if amount_input else
-                        "←/→ select • ENTER confirm • C hide cards • Q quit"
-                    )
-                    self.draw("" if zen_mode else controls)
+                    self.draw("" if zen_mode else "\n".join([
+                        *(
+                            ["logs symbols: [ ->: bet | -> +: raise | -: Check | #: Call | X: Fold ]"]
+                            if table != {} and len(table["info"]["logs"]) > 0
+                            else []
+                        ),
+                        "←/→: Move • ENTER/SPACE: Select • C: Show/Hide Cards • Q: Quit"
+                    ]))
                 
                 key = read_key_nonblocking(1 / self.fps)
                 
@@ -1167,11 +857,7 @@ class UI:
                     pointer_x -= 1
                 elif not amount_input and key in [" ", "ENTER"] and my_turn and not force_not_my_turn:
                     key_pressed = True
-                    if len(possible_moves) == 0:
-                        status_text = "no legal moves are available"
-                        status_color = UI.Color.RED
-                    elif possible_moves[pointer_x] in ["Raise", "Re-Raise", "Bet"]:
-                        amount = max(1, me.get("minimum_raise_amount", 1))
+                    if possible_moves[pointer_x] in ["Raise", "Re-Raise", "Bet"]:
                         amount_input = True
                     else:
                         status, do_move_data = post_json(self.current_host, "/do_move", {
@@ -1182,57 +868,50 @@ class UI:
                             "amount": 0
                         })
                         if do_move_data.get("ok"):
-                            status_text = ""
-                            status_color = UI.Color.RED
                             force_not_my_turn = True
-                        else:
-                            status_text = self.api_error(status, do_move_data, "move rejected")
-                            status_color = UI.Color.RED
                 elif amount_input and key in [" ", "ENTER"] and my_turn and not force_not_my_turn:
                     key_pressed = True
                     try:
-                        minimum_amount = max(1, me.get("minimum_raise_amount", 1))
-                        maximum_amount = max(minimum_amount, me.get("maximum_raise_amount", minimum_amount))
                         status, do_move_data = post_json(self.current_host, "/do_move", {
                             "username": self.username,
                             "password": self.password,
                             "table_id": id,
                             "move_type": possible_moves[pointer_x],
-                            "amount": max(minimum_amount, min(maximum_amount, int(amount)))
+                            "amount": max(1, min(me["money"], int(amount)))
                         })
                         if do_move_data.get("ok"):
                             amount_input = False
-                            status_text = ""
-                            status_color = UI.Color.RED
                             force_not_my_turn = True
-                        else:
-                            status_text = self.api_error(status, do_move_data, "move rejected")
-                            status_color = UI.Color.RED
                     except ValueError:
-                        status_text = "amount must be a number"
-                        status_color = UI.Color.RED
+                        pass
                 elif amount_input and key == "ESC":
                     key_pressed = True
                     amount_input = False
                 elif amount_input and key in ["UP", "RIGHT"]:
                     key_pressed = True
-                    maximum_amount = max(1, me.get("maximum_raise_amount", 1))
-                    amount = min(maximum_amount, amount + 1)
+                    amount = amount + 1
                 elif amount_input and key in ["DOWN", "LEFT"]:
                     key_pressed = True
-                    minimum_amount = max(1, me.get("minimum_raise_amount", 1))
-                    amount = max(minimum_amount, amount - 1)
+                    amount = max(0, amount - 1)
                 elif key in ["h", "H", "c", "C"]:
                     key_pressed = True
                     cards_hidden = not cards_hidden
     
     def podium_view(self, id):
         next_refresh = 0.0
-        table = {}
+        last_phase = ""
+        
+        cards_hidden = False
+        
+        key_pressed = False
         old_table = {}
-        status_text = ""
-        status_color = UI.Color.RED
-        old_status_text = ""
+        
+        table = {}
+        pointer = 0
+        
+        my_cards = []
+        
+        zen_mode = False
         
         with cbreak_stdin():
             while True:
@@ -1240,101 +919,82 @@ class UI:
                 
                 if now >= next_refresh:
                     try:
-                        status, data = get_json(self.current_host, "/get_tables")
-                        if not data.get("ok"):
-                            status_text = self.api_error(status, data, "could not refresh round result")
-                            status_color = UI.Color.RED
-                        else:
-                            selected_table = next((t for t in data.get("tables", []) if t["id"] == id), None)
-                            if selected_table is None:
-                                self.flash_message("table not found", UI.Color.RED, "Returning to table list...")
-                                return True
-                            if not selected_table["active"]:
-                                return self.table_lobby_view(id)
-                            if not selected_table["info"].get("ended"):
-                                return self.table_view(id)
-                            table = selected_table
-
-                            bankroll, bankroll_error = self.fetch_bankroll()
-                            if bankroll_error:
-                                status_text = bankroll_error
-                                status_color = UI.Color.RED
-                            else:
-                                status_text = ""
-
-                        handshake_status, handshake_data = post_json(self.current_host, "/handshake", {
+                        _, data = get_json(self.current_host, "/get_tables")
+                        if data.get("ok"):
+                            for t in data["tables"]:
+                                if t["id"] == id and t["active"]:
+                                    table = t
+                            if "phase" in list(table["info"].keys()) and last_phase != table["info"]["phase"]:
+                                _, my_cards_data = post_json(self.current_host, "/my_cards", {
+                                    "username": self.username,
+                                    "password": self.password,
+                                    "table_id": id
+                                })
+                                if my_cards_data.get("ok"):
+                                    my_cards = my_cards_data["cards"]
+                                last_phase = table["info"]["phase"]
+                    
+                        post_json(self.current_host, "/handshake", {
                             "username": self.username,
                             "password": self.password,
                             "table_id": id
                         })
-                        if not handshake_data.get("ok"):
-                            status_text = self.api_error(handshake_status, handshake_data, "could not keep table session alive")
-                            status_color = UI.Color.RED
                     
-                    except Exception as error:
-                        status_text = str(error)
-                        status_color = UI.Color.RED
+                    except TypeError or KeyError:
+                        pass
                     
                     next_refresh = now + 0.5
                 
-                if old_table != table or old_status_text != status_text:
+                if old_table != table or key_pressed:
+                    key_pressed = False
                     old_table = table
-                    old_status_text = status_text
                     
                     self.reset_text()
                     
                     if table != {}:
-                        info = table["info"]
-                        bankroll, bankroll_error = self.fetch_bankroll()
-                        if bankroll is not None:
-                            self.draw_lines_in_region(
-                                [f"{self.username} {bankroll}*"],
-                                2, 1, 24, 1, UI.Color.GREEN
+                        
+                        pool_value = table['info']['pool']
+                        if pool_value > 0:
+                            pool = f"{pool_value}*"
+                            self.draw_object([pool], 71 - round(len(pool) / 2), 5, UI.Color.GREEN)
+                        
+                        # === players list ===================================
+                        
+                        players_list = []
+                        for i, player in enumerate(table["info"]["players"]):
+                            green = UI.Color.GREEN.value if player["is_in"] else ""
+                            gray = "" if player["is_in"] else UI.Color.GRAY.value + UI.Color.STRIKETHROUGH.value
+                            reset = UI.Color.RESET.value if player["is_in"] else UI.Color.GRAY.value
+                            highlight = UI.Color.CYAN.value if player["name"] == self.username else ""
+                            cards = f' [{player["cards"]}]' if player["cards"] else ""
+                            players_list.append(
+                                f"{gray} [{green}{player['bet']}*{reset}] {highlight}{player['name']}{reset}{cards} {green}{player['money']}*"
                             )
-                        elif bankroll_error:
-                            self.draw_lines_in_region(
-                                [bankroll_error],
-                                2, 1, 24, 1, UI.Color.RED
-                            )
-
-                        self.label("Round Over", 2, UI.Color.YELLOW)
-                        summary_lines = self.round_over_lines(info)
-                        self.draw_lines_in_region(summary_lines, 3, 5, 72, 7, UI.Color.GREEN)
-
-                        board_cards = self.cards_from_payload(info.get("community_cards", []))[:5]
-                        board_cards = board_cards + [poker.Card.Back] * max(0, 5 - len(board_cards))
-                        self.render_cards_block(board_cards, 3, 13)
-
-                        if status_text:
-                            self.draw_lines_in_region([status_text], 2, 26, 74, 1, status_color)
-                        else:
-                            self.draw_lines_in_region(
-                                ["Waiting for next round"],
-                                2, 26, 74, 1, UI.Color.GRAY
-                            )
+                        self.draw_object(("\n" * (2 if len(players_list) <= 5 else 1)).join(players_list).split("\n"), 28, 16)
+                        
+                        # ====================================================
                     
-                    self.draw("ESC leave table • Q quit")
+                    self.draw("" if zen_mode else "\n".join([
+                        *(
+                            ["logs symbols: [ ->: bet | -> +: raise | -: Check | #: Call | X: Fold ]"]
+                            if table != {} and len(table["info"]["logs"]) > 0
+                            else []
+                        ),
+                        "←/→: Move • ENTER/SPACE: Select • C: Show/Hide Cards • Q: Quit"
+                    ]))
                 
                 key = read_key_nonblocking(1 / self.fps)
                 
                 if key in ("q", "Q"):
                     exit()
-                elif key == "ESC":
-                    left, message = self.leave_table_request(id)
-                    if left:
-                        if message:
-                            self.flash_message(message, UI.Color.YELLOW, "Returning home...")
-                        return True
-                    status_text = message
-                    status_color = UI.Color.RED
     
     def table_lobby_view(self, id):
         next_refresh = 0.0
+        
+        cards_hidden = False
+        
         table = {}
         old_table = {}
-        status_text = ""
-        status_color = UI.Color.RED
-        old_status_text = ""
         
         with cbreak_stdin():
             while True:
@@ -1342,83 +1002,43 @@ class UI:
                 
                 if now >= next_refresh:
                     try:
-                        status, data = get_json(self.current_host, "/get_tables")
-                        if not data.get("ok"):
-                            status_text = self.api_error(status, data, "could not refresh lobby")
-                            status_color = UI.Color.RED
-                        else:
-                            selected_table = next((t for t in data.get("tables", []) if t["id"] == id), None)
-                            if selected_table is None:
-                                self.flash_message("table not found", UI.Color.RED, "Returning to table list...")
-                                return True
-                            if selected_table["active"]:
-                                if selected_table["info"].get("ended"):
-                                    return self.podium_view(id)
-                                return self.table_view(id)
-                            table = selected_table
-                            status_text = ""
-
-                        bankroll, bankroll_error = self.fetch_bankroll()
-                        if bankroll_error:
-                            status_text = bankroll_error
-                            status_color = UI.Color.RED
-
-                        handshake_status, handshake_data = post_json(self.current_host, "/handshake", {
-                            "username": self.username,
-                            "password": self.password,
-                            "table_id": id
-                        })
-                        if not handshake_data.get("ok"):
-                            status_text = self.api_error(handshake_status, handshake_data, "could not keep lobby session alive")
-                            status_color = UI.Color.RED
-                    except Exception as error:
-                        status_text = str(error)
-                        status_color = UI.Color.RED
+                        _, data = get_json(self.current_host, "/get_tables")
+                        if data.get("ok"):
+                            for t in data["tables"]:
+                                if t["id"] == id:
+                                    if t["active"]:
+                                        self.table_view(id)
+                                        return
+                                    else:
+                                        table = t
+                    except TypeError:
+                        return
                     
                     next_refresh = now + 0.5
                 
-                if old_table != table or old_status_text != status_text:
+                if old_table != table:
                     old_table = table
-                    old_status_text = status_text
                     self.reset_text()
                     
                     self.back_button()
                     
                     self.label("Countdown", 8, UI.Color.GRAY)
-                    self.label(str(table.get('count_down', 0)), 10, UI.Color.YELLOW)
+                    self.label(str(table['count_down']), 10, UI.Color.YELLOW)
                     
                     self.label("Players", 14, UI.Color.GRAY)
-                    self.label(str(table.get("players", 0)), 16, UI.Color.CYAN)
-
-                    bankroll, bankroll_error = self.fetch_bankroll()
-                    if bankroll is not None:
-                        self.draw_object([f"{self.username} {UI.Color.GREEN.value}{bankroll}*"], 2, 1)
-                    elif bankroll_error:
-                        self.draw_object([bankroll_error], 2, 1, UI.Color.RED)
-
-                    footer_lines = []
-                    if status_text:
-                        footer_lines.append(status_color.value + status_text + UI.Color.RESET.value)
-                    footer_lines.append("ESC: Leave Table • Q: Quit")
-                    self.draw("\n".join(footer_lines))
+                    self.label(str(table["players"]), 16, UI.Color.CYAN)
+                    
+                    self.draw("Q: Quit")
                 
                 key = read_key_nonblocking(1 / self.fps)
                 
                 if key in ("q", "Q"):
                     exit()
                 elif key == "ESC":
-                    left, message = self.leave_table_request(id)
-                    if left:
-                        if message:
-                            self.flash_message(message, UI.Color.YELLOW, "Returning home...")
-                        return True
-                    status_text = message
-                    status_color = UI.Color.RED
+                    return
     
     def join_table_view(self):
         pointer = 0
-        status_text = ""
-        status_color = UI.Color.RED
         
         with cbreak_stdin():
             while True:
@@ -1428,93 +1048,44 @@ class UI:
                 
                 try:
                     status, get_tables_data = get_json(self.current_host, "/get_tables")
-                    if not get_tables_data.get("ok"):
-                        status_text = self.api_error(status, get_tables_data, "could not load tables")
-                        status_color = UI.Color.RED
-                        tables = []
-                        disabled = set()
-                    else:
-                        raw_tables = get_tables_data.get("tables", [])
-                        tables = [
-                            f"Table {table['id'] + 1}     {self.table_status_label(table)}   ({table['players']}/8)"
-                            for table in raw_tables
-                        ]
-                        disabled = {
-                            i for i, table in enumerate(raw_tables)
-                            if table.get("active") or table.get("players", 0) >= 8
-                        }
-                        status_text = ""
-                except Exception as error:
-                    status_text = str(error)
-                    status_color = UI.Color.RED
-                    tables = []
-                    disabled = set()
-
-                bankroll, bankroll_error = self.fetch_bankroll()
+                    tables = [
+                        f"""{
+                            UI.Color.STRIKETHROUGH.value if table['active'] else ''
+                        }Table {table['id'] + 1}     {
+                            '(playing)' if table['active'] else '(waiting)'
+                        }   ({table['players']}/8)"""
+                        for table in get_tables_data["tables"]
+                    ]
+                except TypeError:
+                    return
                 
                 self.label("Join Table", 5, UI.Color.GREEN)
-
-                if bankroll is not None:
-                    self.draw_object([f"{self.username} {UI.Color.GREEN.value}{bankroll}*"], 2, 1)
-                elif bankroll_error:
-                    self.draw_object([bankroll_error], 2, 1, UI.Color.RED)
-
-                if len(tables) > 0:
-                    pointer %= len(tables)
-                    self.menu(pointer, tables, UI.Color.GREEN, y = 10, w = 40, disabled=disabled)
-                else:
-                    self.label("No tables available", 12, UI.Color.GRAY)
-
-                footer_lines = []
-                if status_text:
-                    footer_lines.append(status_color.value + status_text + UI.Color.RESET.value)
-                footer_lines.append("↑/↓: Move • ENTER/SPACE: Select • R: Reload • ESC/Q: Back")
-                self.draw("\n".join(footer_lines))
+                
+                self.menu(pointer, tables, UI.Color.GREEN, y = 10, w = 40)
+                
+                self.draw("↑/↓: Move • ENTER/SPACE: Select • Q: Quit")
                 
                 while True:
                     key = read_key()
                     if key in (None, "q", "Q"):
                         exit()
                     if key == "UP":
-                        if len(tables) == 0:
-                            break
                         pointer -= 1
                         pointer %= len(tables)
                         break
                     elif key == "DOWN":
-                        if len(tables) == 0:
-                            break
                         pointer += 1
                         pointer %= len(tables)
                         break
-                    elif key in (None, "r", "R"):
-                        break
                     elif key in [" ", "ENTER"]:
-                        if len(tables) == 0:
-                            status_text = "no tables available"
-                            status_color = UI.Color.RED
-                            break
-                        selected_table = get_tables_data.get("tables", [])[pointer]
-                        if pointer in disabled:
-                            if selected_table.get("active"):
-                                status_text = "table is busy"
-                            elif selected_table.get("players", 0) >= 8:
-                                status_text = "table is full"
-                            else:
-                                status_text = "table cannot be joined right now"
-                            status_color = UI.Color.RED
-                            break
-
-                        status, data = post_json(self.current_host, "/join_table", {
-                            "username": self.username,
-                            "password": self.password,
-                            "table_id": selected_table["id"]
-                        })
-                        if data.get("ok"):
-                            self.table_lobby_view(selected_table["id"])
-                            return
-                        status_text = self.api_error(status, data, "could not join table")
-                        status_color = UI.Color.RED
+                        status, data = post_json(self.current_host, "/join_table",
+                            {
+                                "username": self.username,
+                                "password": self.password,
+                                "table_id": get_tables_data["tables"][pointer]["id"]
+                            }
+                        )
+                        self.table_lobby_view(get_tables_data["tables"][pointer]["id"])
                         break
                     elif key == "ESC":
                         return
@@ -1588,10 +1159,10 @@ class UI:
                         break
     
     def minigames_view(self):
-        self.flash_message("minigames are disabled", UI.Color.GRAY, "Returning...", 0.8)
+        pass
     
     def statistics_view(self):
-        self.flash_message("statistics are disabled", UI.Color.GRAY, "Returning...", 0.8)
+        pass
     
     def settings_window_size_view(self):
         with cbreak_stdin():
@@ -1793,36 +1364,31 @@ class UI:
     
     def home_view(self):
         pointer = 0
-        options = [
-            "Join Table",
-            "(Minigames)",
-            "Settings",
-            "<-] Logout"
-        ]
-        disabled = {1}
-        status_text = ""
-        status_color = UI.Color.RED
-
+        options = {
+            "Join Table": self.join_table_view,
+            "(Minigames)": print,
+            "Settings": self.settings_view,
+            "<-] Logout": None
+        }
+        
+        try:
+            status, data = get_json(self.current_host, "/money")
+            money = data["players"][self.username]
+        except TypeError:
+            money = None
+        
         with cbreak_stdin():
             while True:
-                money, money_error = self.fetch_bankroll()
-
                 self.reset_text()
                 
                 if money is not None:
                     self.draw_object([f"{self.username} {UI.Color.GREEN.value}{money}*"], 2, 1)
-                elif money_error:
-                    self.draw_object([money_error], 2, 1, UI.Color.RED)
                 
                 self.poker_logo(round(self.w / 2) - 24, 4, self.settings.home_screen_color)
                 
-                self.menu(pointer, options, self.settings.home_screen_color, disabled=disabled)
-
-                footer_lines = []
-                if status_text:
-                    footer_lines.append(status_color.value + status_text + UI.Color.RESET.value)
-                footer_lines.append("↑/↓: Move • ENTER/SPACE: Select • Q: Quit")
-                self.draw("\n".join(footer_lines))
+                self.menu(pointer, options, self.settings.home_screen_color)
+                
+                self.draw("↑/↓: Move • ENTER/SPACE: Select • Q: Quit")
                 
                 while True:
                     key = read_key()
@@ -1837,23 +1403,14 @@ class UI:
                         pointer %= len(options)
                         break
                     elif key in ["ENTER", " "]:
-                        selected = options[pointer]
-                        if selected == "<-] Logout":
+                        if "Logout" in list(options.keys())[pointer]:
                             return
-                        if selected == "(Minigames)":
-                            status_text = "minigames are disabled"
-                            status_color = UI.Color.RED
-                            break
-                        if selected == "Join Table":
-                            self.join_table_view()
-                        elif selected == "Settings":
-                            self.settings_view()
+                        list(options.values())[pointer]()
                         break
     
     def wait_for_registration_approval_view(self):
         money = None
         tick = 0
-        error = ""
         
         with cbreak_stdin():
             while True:
@@ -1862,25 +1419,14 @@ class UI:
                 if tick == 0:
                     try:
                         status, money_data = get_json(self.current_host, "/money")
-                        if money_data.get("ok"):
-                            money = money_data.get("players", {})
-                            error = ""
-                        else:
-                            error = self.api_error(status, money_data, "could not load approval status")
-                            money = {}
-                    except Exception as exc:
-                        error = str(exc)
+                        money = money_data["players"]
+                    except TypeError:
                         money = {}
                         
                     try:
                         status, rr_data = get_json(self.current_host, "/register-requests")
-                        if rr_data.get("ok"):
-                            registration_requests = rr_data.get("register-requests", [])
-                        else:
-                            error = self.api_error(status, rr_data, "could not load approval status")
-                            registration_requests = []
-                    except Exception as exc:
-                        error = str(exc)
+                        registration_requests = rr_data["register-requests"]
+                    except TypeError:
                         registration_requests = []
                     
                     if self.username in list(money.keys()):
@@ -1891,8 +1437,6 @@ class UI:
                         return False
                 
                 self.label("Waiting for server admin to accept your registration", 13)
-                if error:
-                    self.label(error, 14, UI.Color.RED)
                 
                 self.label(["     ", ".    ", ". .  ", ". . ."][tick], 15)
                 
@@ -1960,8 +1504,6 @@ class UI:
                         if data.get("ok"):
                             self.username = text_inputs["Username"]
                             self.password = text_inputs["Password"]
-                            if login:
-                                return True
                             approved = self.wait_for_registration_approval_view()
                             return approved
                         elif status == 0:
