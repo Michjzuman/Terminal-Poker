@@ -9,8 +9,10 @@
 #
 
 
+from collections import Counter
 from enum import Enum
 from dataclasses import dataclass
+from itertools import combinations
 import random
 import platform
 
@@ -368,83 +370,154 @@ class HandRank(Enum):
 class Hand:
     rank: HandRank
     cards: list[Card]
+    tiebreaker: tuple[int, ...]
     owner: "Player" = None
     
     @property
     def points(self) -> list[int]:
-        
-        of_a_kind = [
-            HandRank.HIGH_CARD, HandRank.PAIR,
-            HandRank.THREE_OF_A_KIND, HandRank.FOUR_OF_A_KIND
-        ]
-        
-        sum_valued = [
-            HandRank.STRAIGHT, HandRank.FLUSH,
-            HandRank.STRAIGHT_FLUSH, HandRank.ROYAL_FLUSH
-        ]
-        
-        if any([self.rank is rank for rank in of_a_kind]):
-            return [self.cards[0].rank.number]
-        
-        elif self.rank is HandRank.TWO_PAIR:
-            c = sorted(self.cards, key=lambda c: c.rank.number)
-            return [
-                c[0].rank.number,
-                c[-1].rank.number
-            ]
-        
-        elif self.rank is HandRank.FULL_HOUSE:
-            return [self.cards[0].rank.number * 15 + self.cards[3].rank.number]
-        
-        elif (
-            any([self.rank is rank for rank in [HandRank.STRAIGHT, HandRank.STRAIGHT_FLUSH]])
-            and any([card.rank.value == "A" for card in self.cards])
-            and any([card.rank.value == "2" for card in self.cards])
-        ):
-            return [1 + 2 + 3 + 4 + 5]
-        
-        elif any([self.rank is rank for rank in sum_valued]):
-            return [sum([
-                card.rank.number
-                for card in self.cards
-            ])]
-        
-        return 67
+        return list(self.tiebreaker)
 
-    def is_egual(self, other: "Hand"):
+    @property
+    def strength(self) -> tuple[int, ...]:
+        return (len(HandRank) + 1 - self.rank.value, *self.tiebreaker)
+
+    def is_equal(self, other: "Hand"):
         return (
             other.rank == self.rank and
-            other.points == self.points
+            other.tiebreaker == self.tiebreaker
         )
 
-def sort_hands(*hands: list[Hand]) -> list[Hand]:
-    
-    result = []
-    
-    for hand in hands:
-        found = False
-        
-        for i, position in enumerate(result):
-            if hand.rank.value < position.rank.value:
-                result.insert(i, hand)
-                found = True
+    def is_egual(self, other: "Hand"):
+        return self.is_equal(other)
+
+def sort_hands(*hands: Hand) -> list[Hand]:
+    return sorted(hands, key=lambda hand: hand.strength, reverse=True)
+
+def straight_high_value(cards: list[Card]) -> int | None:
+    ranks = sorted({card.rank.number for card in cards})
+    if len(ranks) != 5:
+        return None
+    if ranks == [2, 3, 4, 5, 14]:
+        return 5
+    if ranks[-1] - ranks[0] == 4:
+        return ranks[-1]
+    return None
+
+def ordered_straight_cards(cards: list[Card], straight_high: int) -> list[Card]:
+    ordered_ranks = (
+        [5, 4, 3, 2, 14]
+        if straight_high == 5 else
+        list(range(straight_high, straight_high - 5, -1))
+    )
+    remaining = list(cards)
+    ordered = []
+    for rank in ordered_ranks:
+        for i, card in enumerate(remaining):
+            if card.rank.number == rank:
+                ordered.append(remaining.pop(i))
                 break
-            
-            elif hand.rank.value == position.rank.value:
-                if hand.points[0] > position.points[0]:
-                    result.insert(i, hand)
-                    found = True
-                    break
-                elif hand.points[0] == position.points[0]:
-                    if len(hand.points) <= 1 or hand.points[1] > position.points[1]:
-                        result.insert(i, hand)
-                        found = True
-                        break
-        
-        if not found:
-            result.append(hand)
-    
-    return result
+    return ordered
+
+def evaluate_five_card_hand(cards: tuple[Card, ...] | list[Card]) -> Hand:
+    cards = list(cards)
+    rank_numbers = [card.rank.number for card in cards]
+    counts = Counter(rank_numbers)
+    items_by_count = sorted(
+        counts.items(),
+        key=lambda item: (item[1], item[0]),
+        reverse=True
+    )
+    flush = len({card.suit for card in cards}) == 1
+    straight_high = straight_high_value(cards)
+
+    if flush and straight_high is not None:
+        rank = (
+            HandRank.ROYAL_FLUSH
+            if straight_high == Rank.ACE.number and min(rank_numbers) == Rank.TEN.number else
+            HandRank.STRAIGHT_FLUSH
+        )
+        return Hand(rank, ordered_straight_cards(cards, straight_high), (straight_high,))
+
+    if 4 in counts.values():
+        quad_rank = max(rank for rank, count in counts.items() if count == 4)
+        kicker = max(rank for rank, count in counts.items() if count == 1)
+        ordered = sorted(
+            cards,
+            key=lambda card: (counts[card.rank.number], card.rank.number),
+            reverse=True
+        )
+        return Hand(HandRank.FOUR_OF_A_KIND, ordered, (quad_rank, kicker))
+
+    if sorted(counts.values()) == [2, 3]:
+        trip_rank = max(rank for rank, count in counts.items() if count == 3)
+        pair_rank = max(rank for rank, count in counts.items() if count == 2)
+        ordered = sorted(
+            cards,
+            key=lambda card: (counts[card.rank.number], card.rank.number),
+            reverse=True
+        )
+        return Hand(HandRank.FULL_HOUSE, ordered, (trip_rank, pair_rank))
+
+    if flush:
+        ordered = sorted(cards, key=lambda card: card.rank.number, reverse=True)
+        return Hand(
+            HandRank.FLUSH,
+            ordered,
+            tuple(card.rank.number for card in ordered)
+        )
+
+    if straight_high is not None:
+        return Hand(
+            HandRank.STRAIGHT,
+            ordered_straight_cards(cards, straight_high),
+            (straight_high,)
+        )
+
+    if 3 in counts.values():
+        trip_rank = max(rank for rank, count in counts.items() if count == 3)
+        kickers = sorted(
+            [rank for rank, count in counts.items() if count == 1],
+            reverse=True
+        )
+        ordered = sorted(
+            cards,
+            key=lambda card: (counts[card.rank.number], card.rank.number),
+            reverse=True
+        )
+        return Hand(HandRank.THREE_OF_A_KIND, ordered, (trip_rank, *kickers))
+
+    pair_ranks = sorted(
+        [rank for rank, count in counts.items() if count == 2],
+        reverse=True
+    )
+    if len(pair_ranks) == 2:
+        kicker = max(rank for rank, count in counts.items() if count == 1)
+        ordered = sorted(
+            cards,
+            key=lambda card: (counts[card.rank.number], card.rank.number),
+            reverse=True
+        )
+        return Hand(HandRank.TWO_PAIR, ordered, (pair_ranks[0], pair_ranks[1], kicker))
+
+    if len(pair_ranks) == 1:
+        pair_rank = pair_ranks[0]
+        kickers = sorted(
+            [rank for rank, count in counts.items() if count == 1],
+            reverse=True
+        )
+        ordered = sorted(
+            cards,
+            key=lambda card: (counts[card.rank.number], card.rank.number),
+            reverse=True
+        )
+        return Hand(HandRank.PAIR, ordered, (pair_rank, *kickers))
+
+    ordered = sorted(cards, key=lambda card: card.rank.number, reverse=True)
+    return Hand(
+        HandRank.HIGH_CARD,
+        ordered,
+        tuple(card.rank.number for card in ordered)
+    )
 
 class Phase(Enum):
     PREFLOP = "Preflop"
@@ -513,12 +586,38 @@ class Player:
         self.move: Move = None
         self.winning_hand: Hand = None
         self.cards_revealed: bool = False
+        self.is_all_in: bool = False
+        self.total_contribution: int = 0
+
+    def reset_for_round(self):
+        self.cards = []
+        self.bet = 0
+        self.is_in = self.money > 0
+        self.move = None
+        self.winning_hand = None
+        self.cards_revealed = False
+        self.is_all_in = False
+        self.total_contribution = 0
+
+    def move_cost(self, move: Move) -> int:
+        to_call = self.game.to_call(self)
+        return to_call + (move.amount if move.type.requires_amount else 0)
+
+    def commit_chips(self, amount: int) -> int:
+        paid = min(amount, self.money)
+        self.bet += paid
+        self.money -= paid
+        self.total_contribution += paid
+        if self.is_in and self.money == 0:
+            self.is_all_in = True
+        return paid
     
     def do_move(self, move: Move):
         if move.type == MoveType.CHECK:
             self.game.logs.append(f"{self.name} -")
             self.game.written_logs.append(f"{self.name} checked")
             self.game.history.append(move)
+            self.game.register_passive_action(self)
             return True
         
         if move.type == MoveType.FOLD:
@@ -527,6 +626,8 @@ class Player:
             self.game.history.append(move)
             self.cards = []
             self.is_in = False
+            self.is_all_in = False
+            self.game.register_passive_action(self)
             return True
         
         if move.type == MoveType.REVEAL_CARDS:
@@ -537,70 +638,76 @@ class Player:
             self.cards_revealed = True
             return True
         
-        diff = self.game.bet - self.bet + (move.amount if move.type.requires_amount else 0)
-        
-        log = {
-            MoveType.CALL: f"{self.name} #",
-            MoveType.BET: f"{self.name} -> {move.amount}*",
-            MoveType.RAISE: f"{self.name} -> +{move.amount}*",
-            MoveType.RERAISE: f"{self.name} -> +{move.amount}*"
-        }[move.type]
-        
-        written_log = {
-            MoveType.CALL: f"{self.name} calles",
-            MoveType.BET: f"{self.name} bet {move.amount}*",
-            MoveType.RAISE: f"{self.name} raised by {move.amount}*",
-            MoveType.RERAISE: f"{self.name} re-raised by {move.amount}*"
-        }[move.type]
-        
-        agressive = {
-            MoveType.CALL: False,
-            MoveType.BET: True,
-            MoveType.RAISE: True,
-            MoveType.RERAISE: True
-        }[move.type]
-        
-        if self.money >= diff:
-            self.bet += diff
-            self.money -= diff
-            
-            self.game.logs.append(log)
-            self.game.written_logs.append(written_log)
-            self.game.history.append(move)
-            if agressive:
-                self.game.agressor = self
-            
+        to_call = self.game.to_call(self)
+        previous_bet = self.game.bet
+
+        if move.type == MoveType.CALL:
+            paid = self.commit_chips(to_call)
+            self.game.logs.append(f"{self.name} #")
+            self.game.written_logs.append(
+                f"{self.name} called {paid}*"
+                if paid == to_call else
+                f"{self.name} called all-in for {paid}*"
+            )
+            self.game.history.append(Move(move.type, paid))
+            self.game.register_passive_action(self)
             return True
-        else:
+
+        diff = self.move_cost(move)
+        if self.money < diff:
             return False
+
+        previous_acted_players = set(self.game.acted_players)
+        self.commit_chips(diff)
+
+        actual_raise_size = max(0, self.bet - previous_bet)
+        is_full_raise = (
+            move.type == MoveType.BET or
+            actual_raise_size >= self.game.last_full_raise
+        )
+
+        self.game.logs.append({
+            MoveType.BET: f"{self.name} -> {move.amount}*",
+            MoveType.RAISE: f"{self.name} -> +{actual_raise_size}*",
+            MoveType.RERAISE: f"{self.name} -> +{actual_raise_size}*"
+        }[move.type])
+        self.game.written_logs.append({
+            MoveType.BET: f"{self.name} bet {move.amount}*",
+            MoveType.RAISE: f"{self.name} raised by {actual_raise_size}*",
+            MoveType.RERAISE: f"{self.name} re-raised by {actual_raise_size}*"
+        }[move.type])
+        self.game.history.append(Move(move.type, actual_raise_size))
+        self.game.register_aggressive_action(
+            self,
+            actual_raise_size,
+            is_full_raise,
+            previous_acted_players
+        )
+        return True
     
     @property
     def possible_moves(self) -> list[MoveType]:
-        if not self.is_in:
+        if not self.is_in or self.game.finished or self.game.round_complete or self.is_all_in:
             return []
         
         result = [MoveType.FOLD]
         
-        if self.game.phase == Phase.SHOWDOWN:
-            result.append(MoveType.REVEAL_CARDS)
-            return result
-        
-        to_call = max(0, self.game.bet - self.bet)
+        to_call = self.game.to_call(self)
         
         if to_call == 0:
-
             result.append(MoveType.CHECK)
-            result.append(MoveType.BET)
+            if self.money > 0:
+                result.append(MoveType.BET)
     
-        elif self.money >= to_call:
-
+        else:
             result.append(MoveType.CALL)
-            
-            last_move = self.game.history[-1].type
-            if last_move is MoveType.RAISE or last_move is MoveType.RERAISE:
-                result.append(MoveType.RERAISE)
-            else:
-                result.append(MoveType.RAISE)
+            if self.game.can_raise(self):
+                last_aggressive_move = self.game.last_aggressive_move_type
+                result.append(
+                    MoveType.RERAISE
+                    if last_aggressive_move in [MoveType.RAISE, MoveType.RERAISE] else
+                    MoveType.RAISE
+                )
 
         
         return result
@@ -608,129 +715,22 @@ class Player:
     @property
     def hands(self) -> list[Hand]:
         hand_cards = self.cards + self.game.community_cards
-        result = []
-        
-        # === HIGH CARD ===================
-        
-        for card in hand_cards:
-            result.append(Hand(HandRank.HIGH_CARD, [card]))
-        
-        # === PAIR ========================
-        
-        pairs = []
-        for i, card1 in enumerate(hand_cards):
-            for card2 in hand_cards[i + 1:]:
-                if card1.rank == card2.rank:
-                    hand = Hand(HandRank.PAIR, [card1, card2])
-                    pairs.append(hand)
-                    result.append(hand)
-        
-        # === TWO PAIR ====================
-        
-        if len(pairs) >= 2:
-            for i, pair1 in enumerate(pairs[:-1]):
-                for pair2 in pairs[i + 1:]:
-                    result.append(Hand(HandRank.TWO_PAIR, pair1.cards + pair2.cards))
-        
-        # === THREE OF A KIND =============
-        
-        three_of_a_kinds = []
-        for i1, card1 in enumerate(hand_cards):
-            for i2, card2 in enumerate(hand_cards[i1 + 1:]):
-                for card3 in hand_cards[i1 + i2 + 2:]:
-                    if card1.rank == card2.rank and card1.rank == card3.rank:
-                        hand = Hand(HandRank.THREE_OF_A_KIND, [card1, card2, card3])
-                        result.append(hand)
-                        three_of_a_kinds.append(hand)
-        
-        # === STRAIGHT ====================
-        
-        straights = []
-        ranks = sorted(hand_cards, key=lambda c: c.rank.number)
-        all_ranks = [Rank.ACE.number] + [rank.number for rank in list(Rank)]
-        for i, rank1 in enumerate(all_ranks[:-4]):
-            straight = all_ranks[i:i+5]
-            cards = []
-            for rank in straight:
-                rank_numbers = [r.rank.number for r in ranks]
-                if rank in rank_numbers:
-                    cards.append(ranks[rank_numbers.index(rank)])
+        if len(hand_cards) < 5:
+            return []
 
-            if len(cards) == 5:
-                hand = Hand(HandRank.STRAIGHT, cards)
-                result.append(hand)
-                straights.append(hand)
-        
-        # === FLUSH =======================
-        
-        flushes = []
-        for i1, card1 in enumerate(hand_cards):
-            for i2, card2 in enumerate(hand_cards[i1 + 1:]):
-                for i3, card3 in enumerate(hand_cards[i1 + i2 + 2:]):
-                    for i4, card4 in enumerate(hand_cards[i1 + i2 + i3 + 3:]):
-                        for card5 in hand_cards[i1 + i2 + i3 + i4 + 4:]:
-                            cards = [card1, card2, card3, card4, card5]
-                            if all(card.suit == cards[0].suit for card in cards):
-                                hand = Hand(HandRank.FLUSH, cards)
-                                result.append(hand)
-                                flushes.append(hand)
-        
-        # === FULL HOUSE ==================
-        
-        if len(pairs) > 0 and len(three_of_a_kinds) > 0:
-            for three_of_a_kind in three_of_a_kinds:
-                for pair in pairs:
-                    cards = three_of_a_kind.cards + pair.cards
-                    if not any([
-                        card1 == card2
-                        for card1 in three_of_a_kind.cards
-                        for card2 in pair.cards
-                    ]):
-                        result.append(Hand(HandRank.FULL_HOUSE, cards))
-        
-        # === FOUR OF A KIND =============
-        
-        for i1, card1 in enumerate(hand_cards):
-            for i2, card2 in enumerate(hand_cards[i1 + 1:]):
-                for i3, card3 in enumerate(hand_cards[i1 + i2 + 2:]):
-                    for card4 in hand_cards[i1 + i2 + i3 + 3:]:
-                        cards = [card1, card2, card3, card4]
-                        if all(card.rank == cards[0].rank for card in cards):
-                            hand = Hand(HandRank.FOUR_OF_A_KIND, cards)
-                            result.append(hand)
-                            three_of_a_kinds.append(hand)
-        
-        # === STRAIGHT / ROYAL FLUSH =====
-        
-        if len(straights) > 0 and len(flushes) > 0:
-            for straight in straights:
-                for flush in flushes:
-                    straight_cards = sorted([
-                        straight_card.rank.number
-                        for straight_card in straight.cards
-                    ])
-                    flush_cards = sorted([
-                        flush_card.rank.number
-                        for flush_card in flush.cards
-                    ])
-                    if flush_cards == straight_cards:
-                        ranks = [
-                            flush_card.rank.value
-                            for flush_card in flush.cards
-                        ]
-                        result.append(Hand(
-                            HandRank.ROYAL_FLUSH
-                            if "A" in ranks and "K" in ranks else
-                            HandRank.STRAIGHT_FLUSH,
-                            sorted(straight.cards, key=lambda c: c.rank.number)
-                        ))
-        
-        # =================================
-        
-        for hand in result:
+        result = []
+        for cards in combinations(hand_cards, 5):
+            hand = evaluate_five_card_hand(cards)
             hand.owner = self
-        
+            result.append(hand)
         return result
+
+    @property
+    def best_hand(self) -> Hand | None:
+        hands = self.hands
+        if len(hands) == 0:
+            return None
+        return sort_hands(*hands)[0]
 
 class Game:
     def __init__(self, *players: Player, pool: int = 0, small_blind: int = 1, big_blind: int = 2, beginner: int = 0):
@@ -760,53 +760,316 @@ class Game:
         self.phase: Phase = Phase.PREFLOP
         self.agressor: Player = self.players[beginner]
         self.pool: int = pool
+        self.payouts: list[tuple[Player, int]] = []
+        self.pots: list[dict] = []
+        self.pot_awarded: bool = False
+        self.button_index: int = beginner % len(self.players)
+        self.small_blind_index: int = self.button_index
+        self.big_blind_index: int = self.button_index
+        self.pending_players: list[Player] = []
+        self.acted_players: set[Player] = set()
+        self.raise_restricted_players: set[Player] = set()
+        self.round_complete: bool = False
+        self.last_full_raise: int = self.big_blind
+        self.last_aggressive_move_type: MoveType | None = None
     
     @property
     def bet(self) -> int:
-        return max([player.bet for player in self.players])
+        return max([player.bet for player in self.players], default=0)
+
+    @property
+    def active_players(self) -> list[Player]:
+        return [player for player in self.players if player.is_in]
+
+    def seat_order_from(self, start_index: int) -> list[Player]:
+        return [
+            self.players[(start_index + offset) % len(self.players)]
+            for offset in range(len(self.players))
+        ]
+
+    def next_active_index(self, start_index: int) -> int:
+        for offset in range(1, len(self.players) + 1):
+            index = (start_index + offset) % len(self.players)
+            if self.players[index].is_in:
+                return index
+        return start_index
+
+    def to_call(self, player: Player) -> int:
+        return max(0, self.bet - player.bet)
+
+    def minimum_raise_amount(self, player: Player) -> int:
+        to_call = self.to_call(player)
+        remaining_after_call = max(0, player.money - to_call)
+        if remaining_after_call <= 0:
+            return 0
+        if to_call == 0:
+            return min(self.big_blind, remaining_after_call)
+        if player in self.raise_restricted_players:
+            return 0
+        if remaining_after_call <= self.last_full_raise:
+            return 1
+        return self.last_full_raise
+
+    def can_raise(self, player: Player) -> bool:
+        return self.minimum_raise_amount(player) > 0
+
+    def update_turn(self):
+        if len(self.pending_players) > 0:
+            self.turn = self.players.index(self.pending_players[0])
+            self.round_complete = False
+        else:
+            self.round_complete = True
+
+    def register_passive_action(self, player: Player):
+        self.acted_players.add(player)
+        self.pending_players = [
+            pending_player for pending_player in self.pending_players
+            if pending_player != player and pending_player.is_in and not pending_player.is_all_in
+        ]
+        self.update_turn()
+
+    def register_aggressive_action(
+        self,
+        player: Player,
+        raise_size: int,
+        is_full_raise: bool,
+        previous_acted_players: set[Player]
+    ):
+        self.agressor = player
+        self.acted_players = {player}
+        self.last_aggressive_move_type = self.history[-1].type
+        if is_full_raise:
+            self.last_full_raise = max(raise_size, self.big_blind if self.bet == player.bet else raise_size)
+            self.raise_restricted_players = set()
+        else:
+            self.raise_restricted_players = {
+                other_player for other_player in previous_acted_players
+                if other_player != player and other_player.is_in and not other_player.is_all_in
+            }
+
+        start_index = (self.players.index(player) + 1) % len(self.players)
+        self.pending_players = [
+            pending_player for pending_player in self.seat_order_from(start_index)
+            if pending_player.is_in and not pending_player.is_all_in and pending_player != player
+        ]
+        self.update_turn()
+
+    def start_betting_round(self, start_index: int):
+        self.acted_players = set()
+        self.raise_restricted_players = set()
+        self.round_complete = False
+        self.pending_players = [
+            player for player in self.seat_order_from(start_index)
+            if player.is_in and not player.is_all_in
+        ]
+        self.update_turn()
+
+    def post_blind(self, player: Player, amount: int, label: str):
+        paid = player.commit_chips(amount)
+        self.logs.append(f"{player.name} {label} {paid}*")
+        self.written_logs.append(f"{player.name} posted {label} {paid}*")
+
+    def setup_blinds(self):
+        if len(self.players) == 2:
+            self.small_blind_index = self.button_index
+            self.big_blind_index = self.next_active_index(self.small_blind_index)
+        else:
+            self.small_blind_index = self.next_active_index(self.button_index)
+            self.big_blind_index = self.next_active_index(self.small_blind_index)
+
+        self.post_blind(self.players[self.small_blind_index], self.small_blind, "SB")
+        self.post_blind(self.players[self.big_blind_index], self.big_blind, "BB")
+        self.last_full_raise = self.big_blind
+        self.last_aggressive_move_type = MoveType.BET
     
     def deal_cards(self) -> None:
         random.shuffle(self.stack)
         for player in self.players:
             player.cards += self.stack[-2:]
             self.stack = self.stack[:-2]
+        self.setup_blinds()
+        self.start_betting_round(self.next_active_index(self.big_blind_index))
+
+    def collect_bets(self) -> None:
+        for player in self.players:
+            self.pool += player.bet
+            player.bet = 0
+
+    def eligible_players_for_pot(self, minimum_contribution: int) -> list[Player]:
+        return [
+            player for player in self.players
+            if player.total_contribution >= minimum_contribution and player.is_in
+        ]
+
+    def build_pots(self) -> list[tuple[int, list[Player]]]:
+        contributions = sorted({
+            player.total_contribution
+            for player in self.players
+            if player.total_contribution > 0
+        })
+        previous_level = 0
+        pots = []
+
+        for level in contributions:
+            contributors = [
+                player for player in self.players
+                if player.total_contribution >= level
+            ]
+            amount = (level - previous_level) * len(contributors)
+            eligible_players = [
+                player for player in contributors
+                if player.is_in
+            ]
+            if amount > 0 and len(eligible_players) > 0:
+                pots.append((amount, eligible_players))
+            previous_level = level
+
+        accounted_amount = sum(amount for amount, _ in pots)
+        leftover_pool = self.pool - accounted_amount
+        if leftover_pool > 0 and len(self.active_players) > 0:
+            pots.append((leftover_pool, self.active_players))
+
+        return pots
+
+    def showdown_order(self) -> list[Player]:
+        start_index = self.next_active_index(self.button_index)
+        return [
+            player for player in self.seat_order_from(start_index)
+            if player.is_in
+        ]
+
+    def payout_winners(self) -> None:
+        if self.pot_awarded:
+            return
+
+        self.payouts = []
+        self.pots = []
+        total_payouts: dict[Player, int] = {}
+        showdown_order = self.showdown_order()
+
+        for pot_index, (amount, eligible_players) in enumerate(self.build_pots(), start=1):
+            comparable_hands = [
+                player.best_hand
+                for player in eligible_players
+                if player.best_hand is not None
+            ]
+
+            if comparable_hands:
+                winning_hand = sort_hands(*comparable_hands)[0]
+                winning_players = [
+                    player for player in eligible_players
+                    if player.best_hand is not None and player.best_hand.is_equal(winning_hand)
+                ]
+            else:
+                winning_hand = None
+                winning_players = [player for player in eligible_players if player.is_in]
+
+            ordered_winners = [
+                player for player in showdown_order
+                if player in winning_players
+            ]
+            if len(ordered_winners) == 0:
+                ordered_winners = winning_players
+
+            share = amount // len(ordered_winners)
+            remainder = amount % len(ordered_winners)
+
+            payouts = []
+            for i, player in enumerate(ordered_winners):
+                payout_amount = share + (1 if i < remainder else 0)
+                player.money += payout_amount
+                total_payouts[player] = total_payouts.get(player, 0) + payout_amount
+                payouts.append((player, payout_amount))
+
+            self.pots.append({
+                "index": pot_index,
+                "amount": amount,
+                "winners": ordered_winners,
+                "winning_hand": winning_hand,
+                "payouts": payouts,
+            })
+
+        self.payouts = [
+            (player, total_payouts[player])
+            for player in self.players
+            if total_payouts.get(player, 0) > 0
+        ]
+        for player, amount in self.payouts:
+            self.logs.append(f"{player.name} <- {amount}*")
+            self.written_logs.append(f"{player.name} won {amount}*")
+
+        self.pot_awarded = True
+
+    def finish_hand(self) -> None:
+        if self.finished:
+            return
+        self.collect_bets()
+        self.phase = Phase.SHOWDOWN
+        for player in self.active_players:
+            player.cards_revealed = True
+            player.winning_hand = player.best_hand
+        self.payout_winners()
+        self.finished = True
+        self.round_complete = True
+        self.pending_players = []
     
     def next_phase(self) -> None:
-        if self.phase.next == None:
-            self.finished = True
+        if self.finished:
+            return
+
+        if len(self.active_players) <= 1:
+            self.finish_hand()
+            return
+
+        self.collect_bets()
+
+        if self.phase == Phase.PREFLOP:
+            self.phase = Phase.FLOP
+        elif self.phase == Phase.FLOP:
+            self.phase = Phase.TURN
+        elif self.phase == Phase.TURN:
+            self.phase = Phase.RIVER
+        elif self.phase == Phase.RIVER:
+            self.phase = Phase.SHOWDOWN
+            self.finish_hand()
+            return
         else:
-            self.phase = self.phase.next
-            if self.phase.amount_of_cards > 0:
-                self.community_cards += self.stack[-self.phase.amount_of_cards:]
-                self.stack = self.stack[:-self.phase.amount_of_cards]
-            
-            for player in self.players:
-                self.pool += player.bet
-                player.bet = 0
-            
-            self.last_full_raise = self.big_blind
-            self.raises_in_round = 0
-            
-            self.agressor: Player = self.beginner
+            self.finish_hand()
+            return
+
+        if self.phase.amount_of_cards > 0:
+            self.community_cards += self.stack[-self.phase.amount_of_cards:]
+            self.stack = self.stack[:-self.phase.amount_of_cards]
+
+        self.last_full_raise = self.big_blind
+        self.last_aggressive_move_type = None
+        self.agressor = self.players[self.button_index]
+        self.start_betting_round(self.next_active_index(self.button_index))
 
     def your_turn(self) -> None:
-        for _ in range(len(self.players)):
-            self.turn += 1
-            self.turn %= len(self.players)
-            if self.players[self.turn].is_in:
-                break
+        self.update_turn()
 
     def play_move(self) -> bool:
+        if self.finished or self.round_complete:
+            return False
+
         player = self.players[self.turn]
         move = player.move
         if move is None:
             return False
-        
+
+        player.move = None
+
         try:
             if player.do_move(move):
-                self.history.append(move)
-                player.move = None
-                self.your_turn()
+                active_players = [candidate for candidate in self.players if candidate.is_in]
+                if len(active_players) <= 1:
+                    if len(active_players) == 1:
+                        winner = active_players[0]
+                        self.turn = self.players.index(winner)
+                        self.agressor = winner
+                    self.finish_hand()
+                    return True
                 return True
             else:
                 return False
@@ -815,31 +1078,25 @@ class Game:
 
     @property
     def winners(self) -> list[Player]:
+        players_in_hand = [player for player in self.players if player.is_in]
+        if len(players_in_hand) <= 1:
+            return players_in_hand or [None]
 
-        all_hands = []
-        
-        for player in self.players:
-            all_hands += player.hands
-        
-        sorted_hands = sort_hands(*all_hands)
-        
-        if sorted_hands:
-            
-            possible_winners = [player for player in self.players if player.is_in]
-            
-            for hand in sorted_hands:
-                if hand.owner in possible_winners:
-                    for player in self.players:
-                        if player != hand.owner and player in possible_winners:
-                            if not any([hand.is_egual(other_hand) for other_hand in player.hands]):
-                                possible_winners.remove(player)
-                
-                if len(possible_winners) == 0:
-                    return possible_winners
-            
-            return possible_winners
-        else:
+        best_hands = [
+            player.best_hand
+            for player in players_in_hand
+            if player.best_hand is not None
+        ]
+        sorted_best_hands = sort_hands(*best_hands)
+
+        if len(sorted_best_hands) == 0:
             return [None]
+
+        winning_hand = sorted_best_hands[0]
+        return [
+            player for player in players_in_hand
+            if player.best_hand is not None and player.best_hand.is_equal(winning_hand)
+        ]
 
 if __name__ == "__main__":
     try:

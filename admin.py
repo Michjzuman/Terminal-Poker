@@ -49,13 +49,11 @@ def admin_panel_login_view(ui):
                 elif (key == "ENTER") or (key == " " and pointer >= 1):
                     
                     host = text_inputs["Server Host"]
-                    if not "http://" in host:
-                        host = "http://" + host
                     
                     status, result = play.post_json(host, "/admin-login", {"password": text_inputs["Admin Password"]})
                     
                     if status == 0:
-                        error = "host not found"
+                        error = result.get("error") or "host not found"
                         break
                     
                     if result["ok"]:
@@ -86,6 +84,7 @@ def admin_panel_register_requests_view(ui, host, password):
     pointer_y = 0
 
     requests: list[str]
+    error = ""
     
     with play.cbreak_stdin():
         while True:
@@ -95,13 +94,23 @@ def admin_panel_register_requests_view(ui, host, password):
             
             try:
                 status, data = play.get_json(host, "/register-requests")
-                requests = data["register-requests"]
+                if not data.get("ok"):
+                    error = ui.api_error(status, data, "could not load register requests")
+                    requests = []
+                else:
+                    requests = data.get("register-requests", [])
+                    error = ""
             
-            except TypeError or KeyError:
+            except Exception as exc:
+                error = str(exc)
                 requests = []
             
             ui.label("Admin Panel", 4, play.UI.Color.RED)
             ui.label("Register Requests", 5, play.UI.Color.RED)
+            if error:
+                ui.label(error, 6, play.UI.Color.RED)
+            elif len(requests) == 0:
+                ui.label("No pending requests", 6, play.UI.Color.GRAY)
             
             if len(requests) > 3 and pointer_y > 1:
                 ui.label(". . .", 7)
@@ -151,6 +160,9 @@ def admin_panel_register_requests_view(ui, host, password):
                     pointer_x %= 2
                     break
                 elif key in ["ENTER", " "]:
+                    if len(requests) == 0:
+                        error = "no pending registration requests"
+                        break
                     
                     status, data = play.post_json(
                         host, [
@@ -162,15 +174,20 @@ def admin_panel_register_requests_view(ui, host, password):
                             "password": password
                         }
                     )
-
+                    if data.get("ok"):
+                        error = ""
+                    else:
+                        error = ui.api_error(status, data, "could not update registration request")
                     break
 
 def admin_panel_menu_view(ui, host, password):
     pointer = 0
-    options = {
-        "View Registration Requests": admin_panel_register_requests_view,
-        "More Options To Come...": None,
-    }
+    options = [
+        "View Registration Requests",
+        "More Options To Come...",
+    ]
+    disabled = {1}
+    status_text = ""
     
     with play.cbreak_stdin():
         while True:
@@ -178,20 +195,26 @@ def admin_panel_menu_view(ui, host, password):
     
             try:
                 status, data = play.get_json(host, "/register-requests")
-                if "register-requests" in list(data.keys()):
-                    amount = len(data["register-requests"])
-                else:
+                if not data.get("ok"):
+                    status_text = ui.api_error(status, data, "could not load registration request count")
                     amount = 0
+                else:
+                    amount = len(data.get("register-requests", []))
+                    status_text = ""
             
-            except TypeError:
+            except Exception as exc:
+                status_text = str(exc)
                 amount = 0
             
             ui.label("Admin Panel", 4, play.UI.Color.RED)
             
-            ui.menu(pointer, [f"{list(options.keys())[0]} ({amount})"], play.UI.Color.RED, 7, 40)
-            ui.menu(pointer - 1, list(options.keys())[1:], play.UI.Color.RED, 10, 40)
+            ui.menu(pointer, [f"{options[0]} ({amount})", options[1]], play.UI.Color.RED, 7, 40, disabled=disabled)
             
-            ui.draw("↑/↓: Move • ENTER/SPACE: Select • Q: Quit")
+            footer_lines = []
+            if status_text:
+                footer_lines.append(play.UI.Color.RED.value + status_text + play.UI.Color.RESET.value)
+            footer_lines.append("↑/↓: Move • ENTER/SPACE: Select • Q: Quit")
+            ui.draw("\n".join(footer_lines))
             
             while True:
                 key = play.read_key()
@@ -208,7 +231,10 @@ def admin_panel_menu_view(ui, host, password):
                     pointer %= len(options)
                     break
                 elif key in ["ENTER", " "]:
-                    list(options.values())[pointer](ui, host, password)
+                    if pointer in disabled:
+                        status_text = "more options are disabled"
+                        break
+                    admin_panel_register_requests_view(ui, host, password)
                     break
 
 def run():
