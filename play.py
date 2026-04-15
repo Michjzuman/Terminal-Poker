@@ -663,6 +663,71 @@ class UI:
         y: int
         color: "UI.Color" = None
 
+    def truncate_plain(self, text: str, width: int):
+        text = str(text)
+        if width <= 0:
+            return ""
+        if UI.true_len(text) <= width:
+            return text
+        if width <= 3:
+            return text[:width]
+        return text[:width - 3] + "..."
+
+    def clip_styled_text(self, text: str, width: int):
+        if width <= 0:
+            return ""
+
+        result = []
+        visible = 0
+        i = 0
+        used_style = False
+
+        while i < len(text) and visible < width:
+            if text[i] == "\x1b":
+                used_style = True
+                j = i + 1
+                while j < len(text):
+                    if "@" <= text[j] <= "~":
+                        j += 1
+                        break
+                    j += 1
+                result.append(text[i:j])
+                i = j
+                continue
+
+            result.append(text[i])
+            visible += 1
+            i += 1
+
+        if used_style:
+            result.append(UI.Color.RESET.value)
+
+        return "".join(result)
+
+    def draw_lines_in_region(self, lines, x: int, y: int, width: int, height: int, color=None):
+        if width <= 0 or height <= 0:
+            return
+
+        clipped_lines = [
+            self.truncate_plain(line, width)
+            for line in list(lines)[:height]
+        ]
+        self.draw_object(clipped_lines, x, y, color)
+
+    def render_cards_block(self, cards, x: int, y: int):
+        self.draw_object(
+            poker.print_cards_in_line(
+                *cards,
+                print_it=False,
+                spacer=" ",
+                design_option=poker.Card.DesignOption(self.settings.card_design),
+                back_design_option=poker.Card.Back.DesignOption(self.settings.card_back_design)
+            ),
+            x,
+            y,
+            UI.Color.WHITE
+        )
+
     def draw_object(self, *args, **kwargs):
         obj = UI.Object(*args, **kwargs)
         color = obj.color
@@ -670,16 +735,23 @@ class UI:
             color = UI.Color.WHITE
         
         for i, line in enumerate(obj.text):
-            
-            if obj.y + i < self.h:
-            
-                plus = UI.true_len(self.text[obj.y + i], True)
+            target_y = obj.y + i
+            if not (1 <= target_y <= self.h):
+                continue
 
-                self.text[obj.y + i] = (
-                    "".join(list(self.text[obj.y + i])[:obj.x + plus]) +
-                    color.value + line + self.Color.RESET.value +
-                    "".join(list(self.text[obj.y + i])[obj.x + plus + UI.true_len(line):])
-                )
+            visible_width = self.w - obj.x + 1
+            if visible_width <= 0:
+                continue
+
+            clipped_line = self.clip_styled_text(line, visible_width)
+            plus = UI.true_len(self.text[target_y], True)
+            visible_len = min(UI.true_len(clipped_line), visible_width)
+
+            self.text[target_y] = (
+                "".join(list(self.text[target_y])[:obj.x + plus]) +
+                color.value + clipped_line + self.Color.RESET.value +
+                "".join(list(self.text[target_y])[obj.x + plus + visible_len:])
+            )
 
     def poker_logo(self, x, y, color):
         self.draw_object(
@@ -733,9 +805,10 @@ class UI:
     def label(self, text, y, color = None):
         if color is None:
             color = UI.Color.WHITE
+        text = self.truncate_plain(text, self.w - 4)
         self.draw_object(
             [text],
-            round(self.w / 2 - len(text) / 2), y,
+            max(1, round(self.w / 2 - UI.true_len(text) / 2)), y,
             color
         )
 
@@ -956,158 +1029,47 @@ class UI:
                         to_call = me.get("to_call", max(0, info.get("bet", 0) - me.get("bet", 0)))
                         minimum_raise_amount = me.get("minimum_raise_amount", 0)
                         maximum_raise_amount = me.get("maximum_raise_amount", 0)
+                        pool_value = info.get("pool", 0)
+                        turn_name = info.get("turn_name") or "-"
 
                         bankroll, bankroll_error = self.fetch_bankroll()
                         if bankroll is not None:
-                            self.draw_object([f"{self.username} {UI.Color.GREEN.value}{bankroll}*"], 2, 1)
-                        elif bankroll_error:
-                            self.draw_object([bankroll_error], 2, 1, UI.Color.RED)
-                    
-                        # === phase label ====================================
-                        
-                        self.draw_object([
-                            table["info"]["phase"]
-                        ], 6, 2, UI.Color.GRAY)
-                        
-                        # === community cards ================================
-                        
-                        self.draw_object(poker.print_cards_in_line(
-                            poker.Card.Back,
-                            *[
-                                poker.Card(
-                                    poker.Rank(card["rank"]),
-                                    poker.Suit(card["suit"])
-                                )
-                                for card in table["info"]["community_cards"]
-                            ],
-                            print_it = False,
-                            spacer = " ",
-                            design_option = poker.Card.DesignOption(self.settings.card_design),
-                            back_design_option = poker.Card.Back.DesignOption(self.settings.card_back_design)
-                        ), 5, 3, UI.Color.WHITE)
-                        
-                        # === pool ===========================================
-                        
-                        pool_value = table['info']['pool']
-                        if pool_value > 0:
-                            pool = f"{pool_value}*"
-                            self.draw_object([pool], 71 - round(len(pool) / 2), 5, UI.Color.GREEN)
-
-                        info_line = (
-                            f"To call: {to_call}*   "
-                            f"Min raise: {minimum_raise_amount}*   "
-                            f"Stack: {me.get('money', 0)}*"
-                        )
-                        if me.get("is_all_in"):
-                            info_line += "   ALL-IN"
-                        self.draw_object([info_line], 5, 14, UI.Color.CYAN)
-                        
-                        # === my cards =======================================
-                        
-                        self.draw_object(poker.print_cards_in_line(
-                            *[
-                                poker.Card.Back
-                                for _ in range(len(my_cards))
-                            ] if cards_hidden else [
-                                poker.Card(poker.Rank(card["rank"]), poker.Suit(card["suit"]))
-                                for card in my_cards
-                            ],
-                            print_it = False,
-                            design_option = poker.Card.DesignOption(self.settings.card_design),
-                            back_design_option = poker.Card.Back.DesignOption(self.settings.card_back_design)
-                        ), 5, 16, UI.Color.WHITE)
-                        
-                        # === possible moves =================================
-                        
-                        if my_turn and not force_not_my_turn:
-                            if amount_input:
-                                minimum_amount = max(1, minimum_raise_amount)
-                                maximum_amount = max(minimum_amount, maximum_raise_amount)
-                                self.draw_object(
-                                    ["".join([
-                                        UI.Color.GRAY.value,
-                                        "↑/↓ • Amount to ",
-                                        possible_moves[pointer_x].lower(), ": ",
-                                        UI.Color.GREEN.value,
-                                        str(amount), "*", (
-                                            "".join([
-                                                UI.Color.GRAY.value,
-                                                " (All In",
-                                                *([
-                                                    ": ", UI.Color.GREEN.value,
-                                                    str(me["money"]), "*",
-                                                    UI.Color.GRAY.value
-                                                ] if amount > me["money"] else []),
-                                                ")"
-                                            ])
-                                            if amount >= me["money"] else ''
-                                        ), (
-                                            "".join([
-                                                UI.Color.GRAY.value,
-                                                " (At Least: ",
-                                                UI.Color.GREEN.value,
-                                                f"{minimum_amount}*",
-                                                UI.Color.GRAY.value,
-                                                ", Max: ",
-                                                UI.Color.GREEN.value,
-                                                f"{maximum_amount}*",
-                                                UI.Color.GRAY.value,
-                                                ")"
-                                            ])
-                                            if amount < minimum_amount or amount > maximum_amount else ''
-                                        )
-                                    ])],
-                                    5, 25
-                                )
-                            else:
-                                action_labels = []
-                                for move in possible_moves:
-                                    label = move
-                                    if move == "Call":
-                                        cost = to_call
-                                        if me.get("money", 0) <= cost:
-                                            label += " (all-in)"
-                                        else:
-                                            label += f" (cost {cost}*)"
-                                    elif move in ["Raise", "Re-Raise", "Bet"]:
-                                        label += f" (min {max(1, minimum_raise_amount)}*)"
-                                    action_labels.append(label)
-
-                                if len(action_labels) > 0:
-                                    for i, move in enumerate(action_labels):
-                                        self.draw_object(
-                                            ["".join([
-                                                *([
-                                                    UI.Color.YELLOW.value, "["
-                                                ] if pointer_x == i else [" "]),
-                                                f"{move}",
-                                                *(["]"] if pointer_x == i else [" "]),
-                                                UI.Color.RESET.value
-                                            ])],
-                                            5 + sum([len(m) + 2 for m in action_labels[:i]]),
-                                            25, UI.Color.WHITE
-                                        )
-                                else:
-                                    self.draw_object(
-                                        ["Waiting for your turn"],
-                                        5, 25, UI.Color.GRAY
-                                    )
-                        else:
-                            self.draw_object(
-                                ["Waiting for your turn"],
-                                5, 25, UI.Color.GRAY
+                            self.draw_lines_in_region(
+                                [f"{self.username} {bankroll}*"],
+                                2, 1, 24, 1, UI.Color.GREEN
                             )
-                        
-                        # === players list ===================================
-                        
-                        players_list = []
-                        for i, player in enumerate(table["info"]["players"]):
-                            arrow = ">" if i == table["info"]["turn"] else " "
-                            green = UI.Color.GREEN.value if player["is_in"] else ""
-                            gray = "" if player["is_in"] else UI.Color.GRAY.value + UI.Color.STRIKETHROUGH.value
-                            reset = UI.Color.RESET.value if player["is_in"] else UI.Color.GRAY.value
-                            highlight = UI.Color.CYAN.value if player["name"] == self.username else ""
-                            cards = f' [{player["cards"]}]' if player["cards"] else ""
+                        elif bankroll_error:
+                            self.draw_lines_in_region(
+                                [bankroll_error],
+                                2, 1, 24, 1, UI.Color.RED
+                            )
+
+                        self.draw_lines_in_region(
+                            [f"Table {id + 1}"],
+                            64, 1, 12, 1, UI.Color.GRAY
+                        )
+                        self.label(
+                            f"{info['phase']} | Turn: {turn_name} | Pot: {pool_value}*",
+                            2,
+                            UI.Color.GRAY
+                        )
+
+                        community_cards = self.cards_from_payload(info.get("community_cards", []))[:5]
+                        board_cards = community_cards + [poker.Card.Back] * max(0, 5 - len(community_cards))
+                        self.render_cards_block(board_cards, 3, 3)
+
+                        log_lines = ["Logs"]
+                        log_lines.extend(
+                            str(log)
+                            for log in info.get("logs", [])[-7:]
+                        )
+                        self.draw_lines_in_region(log_lines, 55, 3, 22, 8, UI.Color.GRAY)
+
+                        self.draw_lines_in_region(["Players"], 2, 11, 12, 1, UI.Color.GRAY)
+                        player_cells = []
+                        for i, player in enumerate(info.get("players", [])):
+                            marker = ">" if i == info.get("turn") else ("x" if not player.get("is_in") else " ")
+                            self_marker = "*" if player.get("name") == self.username else ""
                             role_tags = []
                             if i == info.get("button_index"):
                                 role_tags.append("BTN")
@@ -1116,30 +1078,79 @@ class UI:
                             if i == info.get("big_blind_index"):
                                 role_tags.append("BB")
                             if player.get("is_all_in"):
-                                role_tags.append("ALL-IN")
-                            role_suffix = f" ({', '.join(role_tags)})" if role_tags else ""
-                            players_list.append(
-                                f"{gray}{arrow} [{green}{player['bet']}*{reset}] {highlight}{player['name']}{reset}{cards}{role_suffix} {green}{player['money']}*"
+                                role_tags.append("AI")
+                            if player.get("cards"):
+                                role_tags.append("shown")
+                            roles = f" {'/'.join(role_tags)}" if role_tags else ""
+                            player_cells.append(
+                                f"{marker}{self_marker}{player.get('name', '?')}{roles} [{player.get('bet', 0)}*|{player.get('money', 0)}*]"
                             )
-                        self.draw_object(("\n" * (2 if len(players_list) <= 5 else 1)).join(players_list).split("\n"), 28, 16)
-                        
-                        # === logs ===========================================
-                        
-                        logs = [
-                            f"{UI.Color.RED.value}{i + 1}. {log}{UI.Color.RESET.value}"
-                            for i, log in list(enumerate(table["info"]["logs"]))[-14:]
-                        ]
-                        self.draw_object(logs, 76 - max([UI.true_len(l) for l in logs] + [0]), max(11, 16 - max(0, len(logs) - 10)))
-                        
-                        # ====================================================
+
+                        player_rows = []
+                        for row in range(4):
+                            left = self.truncate_plain(player_cells[row], 35) if row < len(player_cells) else ""
+                            right_index = row + 4
+                            right = self.truncate_plain(player_cells[right_index], 35) if right_index < len(player_cells) else ""
+                            if right:
+                                player_rows.append(f"{left:<35}  {right}")
+                            else:
+                                player_rows.append(left)
+                        self.draw_lines_in_region(player_rows, 2, 12, 74, 4, UI.Color.WHITE)
+
+                        info_line = (
+                            f"To call: {to_call}*   "
+                            f"Min raise: {minimum_raise_amount}*   "
+                            f"Max raise: {maximum_raise_amount}*   "
+                            f"Stack: {me.get('money', 0)}*"
+                        )
+                        if me.get("is_all_in"):
+                            info_line += "   ALL-IN"
+                        self.draw_lines_in_region([info_line], 2, 16, 74, 1, UI.Color.CYAN)
+
+                        own_cards = self.cards_from_payload(my_cards)[:2]
+                        if cards_hidden:
+                            own_cards = [poker.Card.Back, poker.Card.Back]
+                        else:
+                            own_cards = own_cards + [poker.Card.Back] * max(0, 2 - len(own_cards))
+                        self.render_cards_block(own_cards, 3, 17)
+
+                        if my_turn and not force_not_my_turn:
+                            if amount_input:
+                                minimum_amount = max(1, minimum_raise_amount)
+                                maximum_amount = max(minimum_amount, maximum_raise_amount)
+                                action_line = (
+                                    f"Amount for {possible_moves[pointer_x].lower()}: {amount}* "
+                                    f"[min {minimum_amount}* | max {maximum_amount}*]"
+                                )
+                            else:
+                                segments = []
+                                for i, move in enumerate(possible_moves):
+                                    label = move
+                                    if move == "Call":
+                                        label += f" {to_call}*"
+                                    elif move in ["Raise", "Re-Raise", "Bet"]:
+                                        label += f" min {max(1, minimum_raise_amount)}*"
+                                    label = f"[{label}]" if pointer_x == i else label
+                                    segments.append(label)
+                                action_line = "   ".join(segments) if segments else "No legal moves"
+                        else:
+                            action_line = f"Waiting for turn: {turn_name}"
+
+                        self.draw_lines_in_region([action_line], 2, 25, 74, 1, UI.Color.WHITE)
+                        if status_text:
+                            self.draw_lines_in_region([status_text], 2, 26, 74, 1, status_color)
+                        else:
+                            self.draw_lines_in_region(
+                                ["C: show/hide cards"],
+                                2, 26, 74, 1, UI.Color.GRAY
+                            )
                     
-                    footer_lines = []
-                    if status_text:
-                        footer_lines.append(status_color.value + status_text + UI.Color.RESET.value)
-                    if table != {} and len(table["info"]["logs"]) > 0:
-                        footer_lines.append("logs symbols: [ ->: bet | -> +: raise | -: Check | #: Call | X: Fold ]")
-                    footer_lines.append("←/→: Move • ENTER/SPACE: Select • C: Show/Hide Cards • Q: Quit")
-                    self.draw("" if zen_mode else "\n".join(footer_lines))
+                    controls = (
+                        "↑/↓ adjust • ENTER confirm • ESC cancel • Q quit"
+                        if amount_input else
+                        "←/→ select • ENTER confirm • C hide cards • Q quit"
+                    )
+                    self.draw("" if zen_mode else controls)
                 
                 key = read_key_nonblocking(1 / self.fps)
                 
@@ -1276,34 +1287,33 @@ class UI:
                         info = table["info"]
                         bankroll, bankroll_error = self.fetch_bankroll()
                         if bankroll is not None:
-                            self.draw_object([f"{self.username} {UI.Color.GREEN.value}{bankroll}*"], 2, 1)
+                            self.draw_lines_in_region(
+                                [f"{self.username} {bankroll}*"],
+                                2, 1, 24, 1, UI.Color.GREEN
+                            )
                         elif bankroll_error:
-                            self.draw_object([bankroll_error], 2, 1, UI.Color.RED)
-                        
+                            self.draw_lines_in_region(
+                                [bankroll_error],
+                                2, 1, 24, 1, UI.Color.RED
+                            )
+
                         self.label("Round Over", 2, UI.Color.YELLOW)
                         summary_lines = self.round_over_lines(info)
-                        self.draw_object(summary_lines[:8], 5, 5, UI.Color.GREEN)
-                        
-                        self.draw_object(poker.print_cards_in_line(
-                            poker.Card.Back,
-                            *[
-                                poker.Card(
-                                    poker.Rank(card["rank"]),
-                                    poker.Suit(card["suit"])
-                                )
-                                for card in info["community_cards"]
-                            ],
-                            print_it = False,
-                            spacer = " ",
-                            design_option = poker.Card.DesignOption(self.settings.card_design),
-                            back_design_option = poker.Card.Back.DesignOption(self.settings.card_back_design)
-                        ), 5, 11, UI.Color.WHITE)
+                        self.draw_lines_in_region(summary_lines, 3, 5, 72, 7, UI.Color.GREEN)
+
+                        board_cards = self.cards_from_payload(info.get("community_cards", []))[:5]
+                        board_cards = board_cards + [poker.Card.Back] * max(0, 5 - len(board_cards))
+                        self.render_cards_block(board_cards, 3, 13)
+
+                        if status_text:
+                            self.draw_lines_in_region([status_text], 2, 26, 74, 1, status_color)
+                        else:
+                            self.draw_lines_in_region(
+                                ["Waiting for next round"],
+                                2, 26, 74, 1, UI.Color.GRAY
+                            )
                     
-                    footer_lines = []
-                    if status_text:
-                        footer_lines.append(status_color.value + status_text + UI.Color.RESET.value)
-                    footer_lines.append("Waiting for next round • ESC: Leave Table • Q: Quit")
-                    self.draw("\n".join(footer_lines))
+                    self.draw("ESC leave table • Q quit")
                 
                 key = read_key_nonblocking(1 / self.fps)
                 
